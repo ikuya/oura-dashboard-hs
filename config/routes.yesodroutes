@@ -1,0 +1,30 @@
+-- By default this file is used by `parseRoutesFile` in Foundation.hs
+-- Syntax for this file here: https://www.yesodweb.com/book/routing-and-handlers
+
+/static StaticR Static appStatic
+
+/favicon.ico FaviconR GET
+/robots.txt RobotsR GET
+
+/ HomeR GET
+
+-- Auth
+/api/login  LoginR  POST
+/api/logout LogoutR POST
+
+-- Metrics
+/api/metrics          MetricsR      GET
+/api/metrics/#Text    MetricR       GET
+/api/heartrate        HeartrateR    GET
+
+-- Sync
+/api/sync/status SyncStatusR GET
+/api/sync        SyncR       POST
+
+-- Advice (handlers added in Phase 5)
+-- Yesod cannot have a literal and a dynamic segment share a position, so
+-- /api/advice/history and /api/advice/<job_id> are both served by AdviceJobR,
+-- which dispatches on the segment value (matching the Python URL contract).
+/api/advice/history/#Text   AdviceEntryR   GET
+/api/advice                 AdviceR        POST
+/api/advice/#Text           AdviceJobR     GET

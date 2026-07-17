@@ -1,0 +1,12 @@
+database:
+  # NOTE: By design, this setting prevents the SQLITE_DATABASE environment variable
+  # from affecting test runs, so that we don't accidentally affect the
+  # production database during testing.
+  database: oura_test.sqlite3
+
+# SECRET_KEY is required by makeFoundation; supply a fixed value for tests.
+secret-key: test-secret-key
+
+# bcrypt hash of "test-password" (used by the auth tests).
+app-password: "$2y$14$/n1VJC0o0lCSx6DGv9FYlOqivQLoADSxoW.LeTa36FdxfucTqB1t6"
+oura-token: test-token

@@ -1,0 +1,34 @@
+-- Persistent models mapped onto the existing Python oura.db schema.
+-- Table and column names are pinned with sql= / explicit primary keys so
+-- Persistent reads and writes the same database the Flask app created.
+-- Syntax: https://github.com/yesodweb/persistent/blob/master/docs/Persistent-entity-syntax.md
+
+DailyMetric sql=daily_metrics
+    metric    Text
+    day       Text
+    score     Double Maybe
+    dataJson  Text        sql=data_json
+    syncedAt  Text        sql=synced_at
+    UniqueDailyMetric metric day sql=sqlite_autoindex_daily_metrics_1
+    deriving Show
+
+Heartrate sql=heartrate
+    timestamp Text
+    bpm       Int
+    day       Text
+    UniqueHeartrateTimestamp timestamp
+    deriving Show
+
+SyncLog sql=sync_log
+    metric        Text
+    lastSyncedDay Text        sql=last_synced_day
+    lastSyncedAt  Text Maybe  sql=last_synced_at
+    Primary metric
+    deriving Show
+
+AdviceHistory sql=advice_history
+    savedAt     Text        sql=saved_at
+    periodStart Text        sql=period_start
+    periodEnd   Text        sql=period_end
+    content     Text
+    deriving Show

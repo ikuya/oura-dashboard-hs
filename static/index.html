@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Oura Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1 style="cursor:pointer;" onclick="location.reload()">Oura Dashboard</h1>
+    <div class="range-btns">
+      <button data-days="7">7d</button>
+      <button data-days="14" class="active">14d</button>
+      <button data-days="30">30d</button>
+      <button data-days="90">90d</button>
+      <button data-days="180">180d</button>
+    </div>
+    <button id="sync-btn">Sync</button>
+    <button id="advice-btn">Advice</button>
+    <button id="logout-btn">Logout</button>
+  </header>
+
+  <div id="status-bar"></div>
+
+  <!-- Today's score cards -->
+  <div class="cards">
+    <div class="card">
+      <div class="card-label">Readiness</div>
+      <div class="card-value score-neutral" id="card-readiness">—</div>
+      <div class="card-sub" id="card-readiness-date"></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Sleep</div>
+      <div class="card-value score-neutral" id="card-sleep">—</div>
+      <div class="card-sub" id="card-sleep-date"></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Activity</div>
+      <div class="card-value score-neutral" id="card-activity">—</div>
+      <div class="card-sub" id="card-activity-date"></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Stress (high)</div>
+      <div class="card-value score-neutral" id="card-stress">—</div>
+      <div class="card-sub" id="card-stress-date"></div>
+    </div>
+    <div class="card">
+      <div class="card-label">SpO2</div>
+      <div class="card-value score-neutral" id="card-spo2">—</div>
+      <div class="card-sub" id="card-spo2-date"></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Temp. Dev.</div>
+      <div class="card-value score-neutral" id="card-temp">—</div>
+      <div class="card-sub" id="card-temp-date"></div>
+    </div>
+  </div>
+
+  <!-- Main scores chart -->
+  <div class="chart-row">
+    <div class="chart-card">
+      <h2>Readiness / Sleep / Activity Scores</h2>
+      <canvas id="chart-scores"></canvas>
+    </div>
+  </div>
+
+  <!-- Sleep Restfulness + Efficiency -->
+  <div class="chart-row">
+    <div class="chart-card">
+      <h2>Sleep Restfulness, Efficiency &amp; Balance</h2>
+      <canvas id="chart-sleep-restfulness-efficiency"></canvas>
+    </div>
+  </div>
+
+  <!-- Stress + SpO2 -->
+  <div class="chart-row two-col">
+    <div class="chart-card">
+      <h2>Stress (high minutes)</h2>
+      <canvas id="chart-stress"></canvas>
+    </div>
+    <div class="chart-card">
+      <h2>SpO2 (%)</h2>
+      <canvas id="chart-spo2"></canvas>
+    </div>
+  </div>
+
+  <!-- Steps + Temperature -->
+  <div class="chart-row two-col">
+    <div class="chart-card">
+      <h2>Daily Steps</h2>
+      <canvas id="chart-steps"></canvas>
+    </div>
+    <div class="chart-card">
+      <h2>Body Temperature Deviation (°C)</h2>
+      <canvas id="chart-temp"></canvas>
+    </div>
+  </div>
+
+  <!-- Heart Rate -->
+  <div class="chart-row">
+    <div class="chart-card">
+      <h2>Heart Rate
+        <span style="font-weight:400;text-transform:none;letter-spacing:0;">
+          <span id="hr-range-note">(last 7 days)</span>
+          <span class="hr-mode-btns">
+            <button id="hr-btn-7d" class="hr-mode-btn active">7d</button>
+            <button id="hr-btn-1d" class="hr-mode-btn">1d</button>
+          </span>
+          <span id="hr-day-nav" class="hr-day-nav hidden">
+            <button id="hr-prev-day">&#8249;</button>
+            <span id="hr-day-label"></span>
+            <button id="hr-next-day">&#8250;</button>
+          </span>
+        </span>
+      </h2>
+      <canvas id="chart-hr"></canvas>
+    </div>
+  </div>
+
+  <!-- Resilience / Cardiovascular Age -->
+  <div class="chart-row two-col">
+    <div class="chart-card">
+      <h2>Resilience</h2>
+      <canvas id="chart-resilience" style="max-height:120px;"></canvas>
+    </div>
+    <div class="chart-card">
+      <h2>Cardiovascular Age</h2>
+      <canvas id="chart-cardio" style="max-height:120px;"></canvas>
+    </div>
+  </div>
+
+  <!-- Advice History Calendar -->
+  <div class="chart-row">
+    <div class="chart-card calendar-card">
+      <h2>Advice History</h2>
+      <div class="calendar-header">
+        <button id="cal-prev-btn" class="cal-nav-btn" aria-label="前の月">&#8249;</button>
+        <span id="cal-month-label" class="cal-month-label"></span>
+        <button id="cal-next-btn" class="cal-nav-btn" aria-label="次の月">&#8250;</button>
+      </div>
+      <div id="calendar-grid" class="calendar-grid"></div>
+    </div>
+  </div>
+
+  <footer>
+    <details>
+      <summary>Sync status</summary>
+      <table id="sync-status-table"></table>
+    </details>
+  </footer>
+
+  <div id="login-overlay" class="advice-overlay hidden" role="dialog" aria-modal="true" aria-label="ログイン">
+    <div class="confirm-modal">
+      <p class="confirm-message" style="font-weight:700;font-size:16px;margin-bottom:4px;">Oura Dashboard</p>
+      <p class="confirm-message" style="font-size:13px;color:var(--muted);margin-bottom:16px;">パスワードを入力してください</p>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <input
+          id="login-password-input"
+          type="password"
+          placeholder="Password"
+          autocomplete="current-password"
+          style="padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;outline:none;"
+        />
+        <p id="login-error" style="color:var(--red);font-size:12px;min-height:16px;margin:0;"></p>
+      </div>
+      <div class="confirm-actions">
+        <button id="login-submit-btn" class="confirm-ok-btn">ログイン</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="confirm-overlay" class="advice-overlay hidden" role="dialog" aria-modal="true">
+    <div class="confirm-modal">
+      <p class="confirm-message">Claudeに健康データを送信して分析しますか？</p>
+      <div class="confirm-actions">
+        <button id="confirm-cancel-btn" class="confirm-cancel-btn">キャンセル</button>
+        <button id="confirm-ok-btn" class="confirm-ok-btn">分析する</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="advice-overlay" class="advice-overlay hidden" role="dialog" aria-modal="true">
+    <div class="advice-modal">
+      <div class="advice-modal-header">
+        <span class="advice-modal-title">健康アドバイス</span>
+        <div class="advice-header-actions">
+          <button id="advice-copy-btn" class="advice-copy-btn" aria-label="コピー" title="Markdownをコピー">コピー</button>
+          <button id="advice-close-btn" class="advice-close-btn" aria-label="閉じる">&times;</button>
+        </div>
+      </div>
+      <div class="advice-modal-period" id="advice-period"></div>
+      <div id="advice-content" class="advice-content"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="/static/main.js"></script>
+</body>
+</html>
