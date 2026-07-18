@@ -10,7 +10,8 @@ module Handler.Advice where
 
 import Import
 import qualified Data.Aeson          as A
-import qualified Data.HashMap.Strict as HM
+import qualified Data.Aeson.Key      as K
+import qualified Data.Aeson.KeyMap   as KM
 import qualified Data.Text           as T
 import Database.Persist.Sql (ConnectionPool, runSqlPool)
 import Control.Concurrent  (forkIO)
@@ -31,7 +32,7 @@ postAdviceR = do
 
     -- 400 if there is no data at all (any metric list non-empty).
     let hasData = case lookupJson "metrics" healthData of
-            Just (A.Object ms) -> any nonEmptyArr (HM.elems ms)
+            Just (A.Object ms) -> any nonEmptyArr (KM.elems ms)
             _                  -> False
     unless hasData $
         sendStatusJSON status400
@@ -100,7 +101,7 @@ getAdviceEntryR day = do
 -- helpers ----------------------------------------------------------------
 
 lookupJson :: Text -> A.Value -> Maybe A.Value
-lookupJson k (A.Object o) = HM.lookup k o
+lookupJson k (A.Object o) = KM.lookup (K.fromText k) o
 lookupJson _ _            = Nothing
 
 nonEmptyArr :: A.Value -> Bool

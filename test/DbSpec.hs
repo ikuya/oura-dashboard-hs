@@ -12,7 +12,8 @@ import Database.Persist.Sqlite (runSqlite, runMigrationSilent)
 import Database.Persist.Sql    (SqlPersistT, rawExecute, toPersistValue)
 import qualified Data.Aeson as A
 import Data.Aeson ((.=))
-import qualified Data.HashMap.Strict as HM
+import qualified Data.Aeson.Key as K
+import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Map.Strict as M
 
 import Model (migrateAll)
@@ -28,7 +29,7 @@ runMem action = runSqlite ":memory:" $ do
 
 -- | Extract a field from an aeson Value (Object) for assertions.
 field :: Text -> A.Value -> Maybe A.Value
-field k (A.Object o) = lookup k o
+field k (A.Object o) = KM.lookup (K.fromText k) o
 field _ _            = Nothing
 
 spec :: Spec
@@ -175,7 +176,7 @@ spec = do
             status <- runMem getSyncStatus
             case status of
                 A.Object o ->
-                    sort (HM.keys o) `shouldBe` sort
+                    sort (KM.keys o) `shouldBe` sort
                         [ "sleep", "readiness", "activity", "stress", "spo2"
                         , "resilience", "cardiovascular_age", "vo2_max"
                         , "temperature", "heartrate" ]

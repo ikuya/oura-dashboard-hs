@@ -24,7 +24,8 @@ module Sync
 import ClassyPrelude hiding (foldM)
 import qualified Data.Aeson       as A
 import Data.Aeson                 (Value)
-import qualified Data.HashMap.Strict as HM
+import qualified Data.Aeson.Key      as K
+import qualified Data.Aeson.KeyMap   as KM
 import qualified Data.Map.Strict  as M
 import Control.Monad              (foldM)
 import Data.Time.Calendar         (Day, addDays)
@@ -60,7 +61,7 @@ addDaysT n = showDay . addDays n . parseDay
 
 -- | Look up a key in a JSON object, if the Value is an object.
 jsonLookup :: Text -> Value -> Maybe Value
-jsonLookup k (A.Object o) = HM.lookup k o
+jsonLookup k (A.Object o) = KM.lookup (K.fromText k) o
 jsonLookup _ _            = Nothing
 
 asNumber :: Value -> Maybe Value
@@ -79,7 +80,7 @@ extractScore metric record = case metric of
     "activity"   -> jsonLookup "score" record
     "stress"     -> jsonLookup "stress_high" record
     "spo2"       -> case jsonLookup "spo2_percentage" record of
-        Just (A.Object o) -> HM.lookup "average" o
+        Just (A.Object o) -> KM.lookup "average" o
         other             -> other
     "resilience" -> do
         lvl <- jsonLookup "level" record
@@ -139,7 +140,7 @@ syncDailyMetric client metric start end = do
 
     writeTemperature r = case jsonLookup "day" r of
         Just (A.String day) -> do
-            let tempRecord = A.Object $ HM.fromList
+            let tempRecord = A.Object $ KM.fromList
                     [ ("day", A.String day)
                     , ("temperature_deviation",
                         fromMaybe A.Null (jsonLookup "temperature_deviation" r))

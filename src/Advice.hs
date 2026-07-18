@@ -27,7 +27,8 @@ module Advice
 import ClassyPrelude hiding (timeout)
 import qualified Data.Aeson          as A
 import qualified Data.Aeson.Encode.Pretty as AP
-import qualified Data.HashMap.Strict as HM
+import qualified Data.Aeson.Key      as K
+import qualified Data.Aeson.KeyMap   as KM
 import qualified Data.Map.Strict     as M
 import qualified Data.Text.Lazy      as TL
 import Data.Time.Calendar         (addDays)
@@ -118,10 +119,10 @@ extractKeyFields metric row =
             "resilience" -> [("level", g "level")]
             "cardiovascular_age" -> [("vascular_age", g "vascular_age")]
             _ -> []
-    in A.Object (HM.fromList (base ++ extra))
+    in A.Object (KM.fromList (base ++ extra))
 
 lookupJson :: Text -> A.Value -> Maybe A.Value
-lookupJson k (A.Object o) = HM.lookup k o
+lookupJson k (A.Object o) = KM.lookup (K.fromText k) o
 lookupJson _ _            = Nothing
 
 -- | Build the 14-day health payload (period + per-metric key fields).
@@ -129,8 +130,8 @@ buildHealthPayload :: (MonadIO m) => Text -> Int -> ReaderT SqlBackend m A.Value
 buildHealthPayload today days = do
     let start = tshowDay (addDays (negate (fromIntegral days - 1)) (parseDayT today))
     bulk <- getDailyMetricsBulk dailyMetricsForAdvice start today
-    let metricsObj = HM.fromList
-            [ (m, A.toJSON (map (extractKeyFields m) (M.findWithDefault [] m bulk)))
+    let metricsObj = KM.fromList
+            [ (K.fromText m, A.toJSON (map (extractKeyFields m) (M.findWithDefault [] m bulk)))
             | m <- dailyMetricsForAdvice ]
         period = A.object ["start" A..= start, "end" A..= today, "days" A..= days]
     return $ A.object ["period" A..= period, "metrics" A..= A.Object metricsObj]
@@ -194,8 +195,8 @@ runAdviceJob jobs jid prompt saveAdvice' = do
   where
     fail' msg = setJob jobs jid (\j -> j { jobStatus = Failed, jobError = Just msg })
     periodBounds (A.Object o) = do
-        A.String s <- HM.lookup "start" o
-        A.String e <- HM.lookup "end" o
+        A.String s <- KM.lookup "start" o
+        A.String e <- KM.lookup "end" o
         return (s, e)
     periodBounds _ = Nothing
 

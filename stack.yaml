@@ -1,11 +1,17 @@
 # Yesod project for oura-dashboard (Haskell port).
-# LTS 18.28 satisfies the scaffold's dependency bounds
-# (aeson 1.5, persistent 2.13, text 1.2).
-resolver: lts-18.28
+# LTS 24.50 ships GHC 9.10.3 (aeson 2.2, text 2.1, persistent 2.17).
+resolver: lts-24.50
 
 packages:
 - .
 
 extra-deps:
-# Dropped from LTS 18.28's snapshot; pulled in by the Yesod scaffold prelude.
-- classy-prelude-yesod-1.5.0@sha256:8f7e183bdfd6d2ea9674284c4f285294ab086aff60d9be4e5d7d2f3c1a2b05b7,1330
+# Dropped from LTS 24.50's snapshot.
+- dotenv-0.12.0.0
+
+# dotenv 0.12 has a stale data-default-class <0.2 cap. Pinning the old version
+# instead would give Settings.hs a different Default class than yesod's
+# instances use, so relax the bound for dotenv only.
+allow-newer: true
+allow-newer-deps:
+- dotenv

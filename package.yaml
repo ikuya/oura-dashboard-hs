@@ -12,28 +12,28 @@ dependencies:
 - classy-prelude >=1.5 && <1.6
 - classy-prelude-conduit >=1.5 && <1.6
 - classy-prelude-yesod >=1.5 && <1.6
-- bytestring >=0.10 && <0.12
-- text >=0.11 && <2.0
-- persistent >=2.9 && <2.14
-- persistent-sqlite >=2.9 && <2.14
-- persistent-template >=2.5 && <2.14
+- bytestring >=0.10
+- text >=0.11
+# persistent-template was merged into persistent as of 2.14.
+- persistent >=2.14
+- persistent-sqlite >=2.13
 - template-haskell
-- shakespeare >=2.0 && <2.1
+- shakespeare >=2.0
 - hjsmin >=0.1 && <0.3
 - monad-control >=0.3 && <1.1
-- wai-extra >=3.0 && <3.2
-- yaml >=0.11 && <0.12
+- wai-extra >=3.0
+- yaml >=0.11
 - http-client
 - http-client-tls >=0.3 && <0.4
-- http-conduit >=2.3 && <2.4
-- directory >=1.1 && <1.4
-- warp >=3.0 && <3.4
+- http-conduit >=2.3
+- directory >=1.1
+- warp >=3.0
 - data-default
-- aeson >=1.4 && <2.1
+- aeson >=2.0
 - conduit >=1.0 && <2.0
 - monad-logger >=0.3 && <0.4
-- fast-logger >=2.2 && <3.2
-- wai-logger >=2.2 && <2.5
+- fast-logger >=2.2
+- wai-logger >=2.2
 - file-embed
 - safe
 - unordered-containers

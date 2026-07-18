@@ -5,15 +5,15 @@
 
 packages:
 - completed:
-    hackage: classy-prelude-yesod-1.5.0@sha256:8f7e183bdfd6d2ea9674284c4f285294ab086aff60d9be4e5d7d2f3c1a2b05b7,1330
+    hackage: dotenv-0.12.0.0@sha256:2f25615cec37ff9a66a48ef0ebf2ac96ae989911d0c26c6796fc2f5247bdd665,4702
     pantry-tree:
-      sha256: ae84d4cc0e1daf985db6cdcf2ac92319531b8e60f547183cc46480d00aafbe20
-      size: 330
+      sha256: 31c08eb6dbd41eda9f0141dcb4cf8071e7650c6d97e4163d04f760e5a6fb4f79
+      size: 1303
   original:
-    hackage: classy-prelude-yesod-1.5.0@sha256:8f7e183bdfd6d2ea9674284c4f285294ab086aff60d9be4e5d7d2f3c1a2b05b7,1330
+    hackage: dotenv-0.12.0.0
 snapshots:
 - completed:
-    sha256: 428ec8d5ce932190d3cbe266b9eb3c175cd81e984babf876b64019e2cbe4ea68
-    size: 590100
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/18/28.yaml
-  original: lts-18.28
+    sha256: f9f775487e1678844b9f031919ed508a88097aa883002a970d3cd6fc6308b5d2
+    size: 732679
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/24/50.yaml
+  original: lts-24.50

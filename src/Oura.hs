@@ -18,6 +18,7 @@ module Oura
 
 import ClassyPrelude
 import qualified Data.Aeson       as A
+import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson                 (Value)
 import qualified Data.Vector      as V
 import Network.HTTP.Simple
@@ -80,12 +81,12 @@ realClient token = OuraClient
             let queryParams = params ++ maybe [] (\t -> [("next_token", t)]) mnext
             body <- httpGet path queryParams
             let dataArr = case body of
-                    A.Object o -> case lookup "data" o of
+                    A.Object o -> case KM.lookup "data" o of
                         Just (A.Array a) -> V.toList a
                         _                -> []
                     _ -> []
                 nextTok = case body of
-                    A.Object o -> case lookup "next_token" o of
+                    A.Object o -> case KM.lookup "next_token" o of
                         Just (A.String t) -> Just t
                         _                 -> Nothing
                     _ -> Nothing

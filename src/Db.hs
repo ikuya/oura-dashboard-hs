@@ -13,7 +13,8 @@ module Db where
 
 import ClassyPrelude.Yesod
 import qualified Data.Aeson          as A
-import qualified Data.HashMap.Strict as HM
+import qualified Data.Aeson.Key      as K
+import qualified Data.Aeson.KeyMap   as KM
 import qualified Data.Map.Strict     as M
 import Database.Persist.Sql       (rawExecute, rawSql, Single (..))
 
@@ -30,15 +31,15 @@ nowIso = formatUtc <$> liftIO getCurrentTime
 parseDataJson :: Text -> A.Object
 parseDataJson t = case A.decodeStrict (encodeUtf8 t) of
     Just (A.Object o) -> o
-    _                 -> HM.empty
+    _                 -> KM.empty
 
 -- | Merge day/score onto the parsed data_json object. The DB @score@ column
 -- takes precedence over any @score@ inside data_json (mirrors db.py's
 -- @{**data, "day": ..., "score": ...}@).
 mergeRow :: Text -> Maybe Double -> A.Object -> A.Value
 mergeRow day mscore o =
-    A.Object $ HM.insert "score" (maybe A.Null A.toJSON mscore)
-             $ HM.insert "day" (A.toJSON day) o
+    A.Object $ KM.insert "score" (maybe A.Null A.toJSON mscore)
+             $ KM.insert "day" (A.toJSON day) o
 
 -- upsert_daily_metric
 upsertDailyMetric
@@ -197,7 +198,7 @@ getSyncStatus = do
             , "last_synced_at" A..= (lastAt :: Maybe Text)
             , "rows"           A..= (cnt :: Int)
             ])
-    return $ A.Object $ HM.fromList [ (m, v) | (m, v) <- entries ]
+    return $ A.Object $ KM.fromList [ (K.fromText m, v) | (m, v) <- entries ]
   where
     countRaw sql params = do
         rs <- rawSql sql params

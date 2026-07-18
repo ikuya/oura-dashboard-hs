@@ -12,6 +12,9 @@ import Test.Hspec
 import Database.Persist.Sqlite (runSqlite, runMigrationSilent)
 import Database.Persist.Sql    (SqlPersistT, rawExecute, toPersistValue)
 import qualified Data.Aeson as A
+import qualified Data.Aeson.Key as K
+import qualified Data.Aeson.Types as AT
+import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson ((.=))
 import qualified Data.Map.Strict as M
 import Data.Time.Calendar (Day, addDays, diffDays)
@@ -61,8 +64,8 @@ stubClientPure = OuraClient
 callsFor :: Text -> [(Text, Text, Text)] -> [(Text, Text)]
 callsFor metric calls = [ (s, e) | (m, s, e) <- calls, m == metric ]
 
-obj :: [(Text, A.Value)] -> A.Value
-obj = A.object . map (\(k, v) -> k .= v)
+obj :: [AT.Pair] -> A.Value
+obj = A.object
 
 spec :: Spec
 spec = do
@@ -271,7 +274,7 @@ spec = do
 -- helpers ----------------------------------------------------------------
 
 fieldOf :: Text -> A.Value -> Maybe A.Value
-fieldOf k (A.Object o) = lookup k o
+fieldOf k (A.Object o) = KM.lookup (K.fromText k) o
 fieldOf _ _            = Nothing
 
 insertHr :: (MonadIO m) => Text -> Int -> Text -> SqlPersistT m ()
