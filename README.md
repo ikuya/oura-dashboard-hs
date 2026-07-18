@@ -7,6 +7,8 @@ SQLite database and serves an existing static frontend (Chart.js) over a JSON AP
 The JSON API is byte-compatible with the Python/Flask original, so the same
 `static/` frontend runs unchanged.
 
+> 日本語版: [README_ja.md](README_ja.md)
+
 ## Features
 
 - Overview dashboard: Sleep, Readiness, Activity, Stress, SpO2, Temperature,
@@ -21,7 +23,7 @@ The JSON API is byte-compatible with the Python/Flask original, so the same
 ## Setup
 
 Requires [Stack](https://get.haskellstack.org/). The first build downloads GHC
-8.10.7 (per `stack.yaml`'s `lts-18.28`) and compiles the dependency tree — this
+9.10.3 (per `stack.yaml`'s `lts-24.50`) and compiles the dependency tree — this
 takes a while; subsequent builds are fast.
 
 ```bash
