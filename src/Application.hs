@@ -43,7 +43,8 @@ import System.Log.FastLogger                (toLogStr)
 -- Import all relevant handler modules here.
 -- Don't forget to add new modules to your cabal file!
 import Advice (newAdviceJobs)
-import Logging (newAppLoggerSet, setGlobalLoggerSet)
+import qualified Yesod.Core.Types as YT
+import Logging (newAppLoggerSet, newTimestamp, setGlobalLoggerSet)
 import Handler.Common
 import Handler.Home
 import Handler.Api
@@ -70,7 +71,11 @@ makeFoundation appSettings = do
     loggerSet' <- newAppLoggerSet (appLogFile appSettings)
     -- Oura/advice code runs in plain IO and logs through this same set.
     setGlobalLoggerSet loggerSet'
-    appLogger <- makeYesodLogger loggerSet'
+    -- Built by hand rather than with makeYesodLogger, whose date cache is fixed
+    -- to the Apache format; this keeps app lines on the same timestamp as the
+    -- CLI. Request lines still use wai-logger's own Apache timestamp.
+    getTime <- newTimestamp
+    let appLogger = YT.Logger { YT.loggerSet = loggerSet', YT.loggerDate = getTime }
     appStatic <-
         (if appMutableStatic appSettings then staticDevel else static)
         (appStaticDir appSettings)

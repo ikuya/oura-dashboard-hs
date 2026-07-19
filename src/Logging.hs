@@ -15,18 +15,18 @@ module Logging
     ( newAppLoggerSet
     , setGlobalLoggerSet
     , logGlobal
+    , newTimestamp
     ) where
 
 import ClassyPrelude
 import Control.Monad.Logger (LogLevel (..))
-import Data.Time            (defaultTimeLocale, formatTime, getCurrentTime)
 import System.Directory     (createDirectoryIfMissing)
 import System.FilePath      (takeDirectory)
-import System.IO            (hPutStrLn, stderr)
+import System.IO            (hPutStrLn)
 import System.IO.Unsafe     (unsafePerformIO)
 import System.Log.FastLogger
-    ( LoggerSet, defaultBufSize, newFileLoggerSet, newStdoutLoggerSet
-    , pushLogStrLn, toLogStr )
+    ( FormattedTime, LoggerSet, defaultBufSize, newFileLoggerSet
+    , newStdoutLoggerSet, newTimeCache, pushLogStrLn, toLogStr )
 
 -- | Build the logger set for a log file path. 'Nothing' (or an empty path)
 -- means stdout.
@@ -61,21 +61,29 @@ globalLoggerSet :: IORef (Maybe LoggerSet)
 globalLoggerSet = unsafePerformIO (newIORef Nothing)
 {-# NOINLINE globalLoggerSet #-}
 
+-- | Shared time cache for 'logGlobal'.
+globalTimestamp :: IO FormattedTime
+globalTimestamp = unsafePerformIO newTimestamp
+{-# NOINLINE globalTimestamp #-}
+
 setGlobalLoggerSet :: LoggerSet -> IO ()
 setGlobalLoggerSet = writeIORef globalLoggerSet . Just
 
--- | Log a message from an 'IO' context, formatted like monad-logger's default
--- output so both paths interleave readably in one file.
+-- | A cached local-time formatter. The cache reformats at most once a second.
+newTimestamp :: IO (IO FormattedTime)
+newTimestamp = newTimeCache "%Y-%m-%d %H:%M:%S"
+
+-- | Log a message from an 'IO' context, with the same timestamp-first layout
+-- as the monad-logger paths so all lines in a file read alike.
 logGlobal :: LogLevel -> Text -> IO ()
 logGlobal level msg = do
     mls <- readIORef globalLoggerSet
     case mls of
         Nothing -> return ()
         Just ls -> do
-            now <- getCurrentTime
-            let ts = pack (formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%z" now)
-            pushLogStrLn ls $ toLogStr
-                ("[" <> levelName level <> "] " <> msg <> " @(" <> ts <> ")")
+            ts <- globalTimestamp
+            pushLogStrLn ls $
+                toLogStr ts <> toLogStr (" [" <> levelName level <> "] " <> msg)
 
 levelName :: LogLevel -> Text
 levelName LevelDebug     = "Debug"

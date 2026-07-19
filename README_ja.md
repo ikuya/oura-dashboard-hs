@@ -104,6 +104,14 @@ LOG_FILE=$PWD/log/oura-dashboard.log stack exec oura-dashboard-hs
 stdout にフォールバックし、起動は継続します。
 
 Info 以上が記録されます。Debug を出すには `YESOD_SHOULD_LOG_ALL=true` が必要です。
+各行の先頭にはローカル時刻のタイムスタンプが付きます:
+
+```
+2026-07-20 00:59:30 [Info] sync start: through 2026-07-20, ...
+2026-07-20 00:59:31 [Warn] GET /v2/usercollection/daily_sleep returned HTTP 401
+```
+
+リクエストログ行は wai-logger の Apache 形式のままで、独自のタイムスタンプを持ちます。
 
 ### ローテーション
 

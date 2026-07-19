@@ -18,10 +18,10 @@ import Database.Persist.Sqlite     (createSqlitePool, runSqlPool, runMigrationSi
 import Data.Time.LocalTime        (utcToZonedTime, hoursToTimeZone)
 import qualified Data.Map.Strict  as M
 import System.Exit                (exitWith, ExitCode (..))
-import System.Log.FastLogger      (LoggerSet, flushLogStr, pushLogStr)
+import System.Log.FastLogger      (LoggerSet, flushLogStr, pushLogStr, toLogStr)
 
 import Application (getAppSettings)
-import Logging     (newAppLoggerSet, setGlobalLoggerSet)
+import Logging     (newAppLoggerSet, newTimestamp, setGlobalLoggerSet)
 import Settings    (AppSettings, appDatabaseConf, appLogFile, appOuraToken,
                     appShouldLogAll)
 import Model       (migrateAll)
@@ -47,13 +47,17 @@ dailySyncMain = do
     flushLogStr loggerSet'
     exitWith code
 
--- | Run a LoggingT against the app's logger set, using monad-logger's standard
--- line format. Mirrors Foundation's shouldLogIO: Debug (which includes
--- persistent's per-query SQL logging) needs YESOD_SHOULD_LOG_ALL.
+-- | Run a LoggingT against the app's logger set. Each line is prefixed with the
+-- local time, the way Yesod prefixes the web app's lines. Mirrors Foundation's
+-- shouldLogIO: Debug (which includes persistent's per-query SQL logging) needs
+-- YESOD_SHOULD_LOG_ALL.
 runLog :: Bool -> LoggerSet -> LoggingT IO a -> IO a
-runLog logAll ls act = runLoggingT act $ \loc src level msg ->
-    when (logAll || level >= LevelInfo) $
-        pushLogStr ls (defaultLogStr loc src level msg)
+runLog logAll ls act = do
+    getTime <- newTimestamp
+    runLoggingT act $ \loc src level msg ->
+        when (logAll || level >= LevelInfo) $ do
+            ts <- getTime
+            pushLogStr ls (toLogStr ts <> " " <> defaultLogStr loc src level msg)
 
 dailySync :: AppSettings -> LoggingT IO ExitCode
 dailySync settings = do

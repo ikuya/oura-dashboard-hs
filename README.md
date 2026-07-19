@@ -103,7 +103,15 @@ Startup crashes that the app cannot log itself land in the matching
 `*.stdio.log`. If the log file cannot be opened, the app warns on stderr and
 falls back to stdout rather than refusing to start.
 
-Info and above are logged; Debug needs `YESOD_SHOULD_LOG_ALL=true`.
+Info and above are logged; Debug needs `YESOD_SHOULD_LOG_ALL=true`. Every line
+starts with a local-time timestamp:
+
+```
+2026-07-20 00:59:30 [Info] sync start: through 2026-07-20, ...
+2026-07-20 00:59:31 [Warn] GET /v2/usercollection/daily_sleep returned HTTP 401
+```
+
+Request lines keep wai-logger's Apache format, which carries its own timestamp.
 
 ### Rotation
 
