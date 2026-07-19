@@ -38,8 +38,11 @@ import System.Process             (readCreateProcessWithExitCode, proc)
 import System.Timeout             (timeout)
 import qualified Data.UUID         as UUID
 import qualified Data.UUID.V4      as UUID
+import Control.Monad.Logger       (LogLevel (..))
+import Data.Time.Clock            (diffUTCTime)
 
 import Db
+import Logging                    (logGlobal)
 
 -- | Job lifecycle states.
 data JobStatus = Queued | Running | Completed | Failed
@@ -173,6 +176,8 @@ runAdviceJob
     -> IO ()
 runAdviceJob jobs jid prompt saveAdvice' = do
     setJob jobs jid (\j -> j { jobStatus = Running })
+    logGlobal LevelInfo ("advice job " <> jid <> " started")
+    started <- getCurrentTime
     let cp = proc "claude"
             [ "-p", unpack prompt, "--max-turns", "1", "--model", "opus"
             , "--append-system-prompt", appendSystemPrompt ]
@@ -187,13 +192,24 @@ runAdviceJob jobs jid prompt saveAdvice' = do
         Right (Just (ExitSuccess, out, _)) -> do
             let adviceOut = pack out
             setJob jobs jid (\j -> j { jobStatus = Completed, jobAdvice = adviceOut, jobError = Nothing })
+            elapsed <- elapsedSince started
+            logGlobal LevelInfo
+                ("advice job " <> jid <> " completed in " <> elapsed)
             -- Save to advice_history using the job's period.
             mjob <- getJob jobs jid
             case mjob >>= periodBounds . jobPeriod of
                 Just (start, end) -> saveAdvice' start end adviceOut
                 Nothing           -> return ()
   where
-    fail' msg = setJob jobs jid (\j -> j { jobStatus = Failed, jobError = Just msg })
+    -- The job state is only kept in a TVar, so without this a failed job is
+    -- invisible outside the browser session that polled for it.
+    fail' msg = do
+        setJob jobs jid (\j -> j { jobStatus = Failed, jobError = Just msg })
+        logGlobal LevelError ("advice job " <> jid <> " failed: " <> msg)
+
+    elapsedSince t0 = do
+        now <- getCurrentTime
+        return (tshow (diffUTCTime now t0))
     periodBounds (A.Object o) = do
         A.String s <- KM.lookup "start" o
         A.String e <- KM.lookup "end" o

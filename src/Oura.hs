@@ -21,8 +21,11 @@ import qualified Data.Aeson       as A
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson                 (Value)
 import qualified Data.Vector      as V
+import Control.Monad.Logger        (LogLevel (..))
 import Network.HTTP.Simple
 import Network.HTTP.Client         (responseTimeoutMicro)
+
+import Logging                     (logGlobal)
 
 -- | Error raised by the Oura client. Mirrors oura_client.OuraAPIError:
 -- carries an optional HTTP status code and a message.
@@ -91,6 +94,9 @@ realClient token = OuraClient
                         _                 -> Nothing
                     _ -> Nothing
                 acc' = acc ++ dataArr
+            logGlobal LevelDebug
+                ("GET " <> path <> ": " <> tshow (length dataArr)
+                 <> " records, " <> tshow (length acc') <> " total")
             case nextTok of
                 Just t  -> go (Just t) acc'
                 Nothing -> return acc'
@@ -110,13 +116,17 @@ realClient token = OuraClient
         -- the Python client's raise_for_status + RequestException handling.
         eresp <- try (httpJSON req)
         case eresp of
-            Left (e :: HttpException) ->
+            Left (e :: HttpException) -> do
+                logGlobal LevelWarn ("GET " <> path <> " failed: " <> tshow e)
                 throwIO $ OuraError Nothing ("Request failed: " <> tshow e)
             Right resp -> do
                 let status = getResponseStatusCode resp
                 if status >= 200 && status < 300
                     then return (getResponseBody resp)
-                    else throwIO (mkHttpError status)
+                    else do
+                        logGlobal LevelWarn
+                            ("GET " <> path <> " returned HTTP " <> tshow status)
+                        throwIO (mkHttpError status)
 
     mkHttpError :: Int -> OuraError
     mkHttpError status =

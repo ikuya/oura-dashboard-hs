@@ -1,6 +1,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE TemplateHaskell   #-}
 
 -- | Incremental sync, ported from sync.py.
 --
@@ -28,7 +29,9 @@ import qualified Data.Aeson.Key      as K
 import qualified Data.Aeson.KeyMap   as KM
 import qualified Data.Map.Strict  as M
 import Control.Monad              (foldM)
+import Control.Monad.Logger       (MonadLogger, logError, logInfo)
 import Data.Time.Calendar         (Day, addDays)
+import Data.Time.Clock            (diffUTCTime)
 import Database.Persist.Sql       (SqlBackend, rawSql, Single (..), toPersistValue)
 
 import Db
@@ -121,7 +124,7 @@ findMissingRange today metric requestedEnd = do
 -- | Fetch and upsert daily metric records. Returns rows written. When syncing
 -- readiness, also derives and stores the temperature metric.
 syncDailyMetric
-    :: (MonadIO m)
+    :: (MonadIO m, MonadLogger m)
     => OuraClient -> Text -> Text -> Text
     -> ReaderT SqlBackend m Int
 syncDailyMetric client metric start end = do
@@ -129,6 +132,8 @@ syncDailyMetric client metric start end = do
     count <- foldM writeRecord 0 records
     when (metric == "readiness" && not (null records)) $
         forM_ records writeTemperature >> updateSyncLog "temperature" end
+    $logInfo ("sync " <> metric <> " " <> start <> ".." <> end
+        <> ": " <> tshow count <> " rows")
     return count
   where
     writeRecord acc r = case jsonLookup "day" r of
@@ -219,7 +224,7 @@ allDailyMetrics =
 
 -- | Run incremental sync for all (or specified) metrics.
 runSync
-    :: (MonadUnliftIO m)
+    :: (MonadUnliftIO m, MonadLogger m)
     => Text                   -- ^ today
     -> OuraClient
     -> Maybe Text             -- ^ requested_start
@@ -230,7 +235,18 @@ runSync
 runSync today client requestedStart requestedEnd mmetrics backfillDays = do
     let end = fromMaybe today requestedEnd
         targets = fromMaybe (allDailyMetrics ++ ["heartrate"]) mmetrics
-    foldM (step end) (SyncResult M.empty M.empty) targets
+    $logInfo ("sync start: through " <> end
+        <> ", backfill_days=" <> tshow backfillDays
+        <> ", metrics=" <> intercalate "," targets)
+    started <- liftIO getCurrentTime
+    result <- foldM (step end) (SyncResult M.empty M.empty) targets
+    finished <- liftIO getCurrentTime
+    let total = sum (M.elems (syncedCounts result))
+        errs = M.size (syncErrors result)
+    $logInfo ("sync done: " <> tshow total <> " rows, "
+        <> tshow errs <> " errors, "
+        <> tshow (diffUTCTime finished started))
+    return result
   where
     step end acc metric
         | metric == "temperature" = return acc  -- derived from readiness
@@ -259,7 +275,7 @@ runSync today client requestedStart requestedEnd mmetrics backfillDays = do
             case e of
                 Just _ -> return (t, e)  -- stop after first error (Python breaks)
                 Nothing -> do
-                    r <- tryOura $ do
+                    r <- tryOura metric $ do
                         c <- syncDailyMetric client metric fs fe
                         updateSyncLog metric fe
                         return c
@@ -290,7 +306,7 @@ runSync today client requestedStart requestedEnd mmetrics backfillDays = do
       where
         loop t windowEnd = do
             let windowStart = max fetchStart (addDaysT (-29) windowEnd)
-            r <- tryOura $ do
+            r <- tryOura "heartrate" $ do
                 recs <- liftIO $ Oura.getHeartrate client windowStart windowEnd
                 c <- upsertHeartrateBatch (map toHrPair recs)
                 updateSyncLog "heartrate" fetchEnd
@@ -310,12 +326,17 @@ runSync today client requestedStart requestedEnd mmetrics backfillDays = do
         )
 
 -- | Run a DB+client action, catching OuraError and returning its message.
+-- The failure is logged here: callers only fold it into 'syncErrors', so
+-- without this an errored metric leaves no trace in the log.
 tryOura
-    :: (MonadUnliftIO m)
-    => ReaderT SqlBackend m a
+    :: (MonadUnliftIO m, MonadLogger m)
+    => Text                   -- ^ metric, for the log line
+    -> ReaderT SqlBackend m a
     -> ReaderT SqlBackend m (Either Text a)
-tryOura action = do
+tryOura metric action = do
     r <- try action
-    return $ case r of
-        Left (OuraError _ msg) -> Left msg
-        Right a                -> Right a
+    case r of
+        Left (OuraError _ msg) -> do
+            $logError $ "sync failed for " <> metric <> ": " <> msg
+            return (Left msg)
+        Right a                -> return (Right a)

@@ -118,14 +118,13 @@ instance Yesod App where
         -- Generate a unique filename based on the content itself
         genFileName lbs = "autogen-" ++ base64md5 lbs
 
-    -- What messages should be logged. The following includes all messages when
-    -- in development, and warnings and errors in production.
+    -- What messages should be logged. Info and above are kept in production so
+    -- the sync/advice records are auditable; Debug needs should-log-all.
     shouldLogIO :: App -> LogSource -> LogLevel -> IO Bool
     shouldLogIO app _source level =
         return $
         appShouldLogAll (appSettings app)
-            || level == LevelWarn
-            || level == LevelError
+            || level >= LevelInfo
 
     makeLogger :: App -> IO Logger
     makeLogger = return . appLogger

@@ -87,6 +87,50 @@ stack exec oura-daily-sync
 Wire it into cron via `run_daily_sync.sh` (runs a few times a day so intraday
 heart-rate data stays current).
 
+## Logging
+
+Set `LOG_FILE` to write logs to a file; leave it unset to log to stdout (the
+default, and what you want during development):
+
+```bash
+LOG_FILE=$PWD/log/oura-dashboard.log stack exec oura-dashboard-hs
+```
+
+`run_oura_dashboard.sh` and `run_daily_sync.sh` set this for you, to
+`log/oura-dashboard.log` and `log/oura-daily-sync.log` respectively. The two
+processes must not share a file, since each holds its own buffered handle.
+Startup crashes that the app cannot log itself land in the matching
+`*.stdio.log`. If the log file cannot be opened, the app warns on stderr and
+falls back to stdout rather than refusing to start.
+
+Info and above are logged; Debug needs `YESOD_SHOULD_LOG_ALL=true`.
+
+### Rotation
+
+Rotation is left to `logrotate` — fast-logger's rotating logger type is not
+usable here, because Yesod's logger and the WAI request logger both require a
+`LoggerSet`. Create `/etc/logrotate.d/oura-dashboard`:
+
+```
+/home/YOUR_USER/work/oura-dashboard-hs/log/*.log {
+    size 10M
+    rotate 5
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}
+```
+
+`copytruncate` is required: the app holds the file open, so logrotate must
+truncate in place instead of renaming. Verify with:
+
+```bash
+sudo logrotate -d /etc/logrotate.d/oura-dashboard   # dry run
+sudo logrotate -f /etc/logrotate.d/oura-dashboard   # force a rotation
+```
+
 ## Tests
 
 ```bash
@@ -103,6 +147,7 @@ src/Db.hs                         SQLite query/upsert layer (ported from db.py)
 src/Oura.hs                       Oura Ring API v2 client (record of fetch functions)
 src/Sync.hs                       Incremental sync logic (ported from sync.py)
 src/Advice.hs                     Advice job state + claude CLI worker
+src/Logging.hs                    Log destination setup (LOG_FILE, stdout fallback)
 src/Foundation.hs                 App foundation, session auth (bcrypt)
 src/Handler/Api.hs                Auth + metrics/heartrate/sync handlers
 src/Handler/Advice.hs             Advice endpoints

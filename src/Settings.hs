@@ -69,6 +69,10 @@ data AppSettings = AppSettings
     -- ^ Session signing key. Required; validated in makeFoundation.
     , appPassword               :: Text
     -- ^ bcrypt hash of the dashboard password. Empty if unset.
+
+    , appLogFile                :: Maybe FilePath
+    -- ^ Log destination. @Nothing@ (the default) logs to stdout; a path logs
+    -- there instead. Rotation is left to logrotate.
     }
 
 instance FromJSON AppSettings where
@@ -102,6 +106,10 @@ instance FromJSON AppSettings where
         appOuraToken              <- o .:? "oura-token"   .!= ""
         appSecretKey              <- o .:? "secret-key"   .!= ""
         appPassword               <- o .:? "app-password" .!= ""
+
+        -- An unset LOG_FILE arrives as "", which means stdout.
+        logFile                   <- o .:? "log-file"     .!= ""
+        let appLogFile = if null logFile then Nothing else Just logFile
 
         return AppSettings {..}
 

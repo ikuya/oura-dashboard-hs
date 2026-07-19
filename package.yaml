@@ -27,6 +27,7 @@ dependencies:
 - http-client-tls >=0.3 && <0.4
 - http-conduit >=2.3
 - directory >=1.1
+- filepath
 - warp >=3.0
 - data-default
 - aeson >=2.0

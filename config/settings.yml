@@ -39,6 +39,11 @@ database:
 copyright: Insert copyright statement here
 #analytics: UA-YOURCODE
 
+# Log destination. Empty (the default) logs to stdout; a path logs there
+# instead. The launcher scripts set this to an absolute path under log/.
+# Rotation is handled by logrotate -- see README.
+log-file: "_env:LOG_FILE:"
+
 # App secrets, sourced from .env (loaded via Configuration.Dotenv at startup).
 # SECRET_KEY is required and validated in makeFoundation.
 oura-token:   "_env:OURA_TOKEN:"

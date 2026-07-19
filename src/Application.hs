@@ -38,12 +38,12 @@ import Network.Wai.Middleware.RequestLogger (Destination (Logger),
                                              IPAddrSource (..),
                                              OutputFormat (..), destination,
                                              mkRequestLogger, outputFormat)
-import System.Log.FastLogger                (defaultBufSize, newStdoutLoggerSet,
-                                             toLogStr)
+import System.Log.FastLogger                (toLogStr)
 
 -- Import all relevant handler modules here.
 -- Don't forget to add new modules to your cabal file!
 import Advice (newAdviceJobs)
+import Logging (newAppLoggerSet, setGlobalLoggerSet)
 import Handler.Common
 import Handler.Home
 import Handler.Api
@@ -67,7 +67,10 @@ makeFoundation appSettings = do
     -- Some basic initializations: HTTP connection manager, logger, and static
     -- subsite.
     appHttpManager <- getGlobalManager
-    appLogger <- newStdoutLoggerSet defaultBufSize >>= makeYesodLogger
+    loggerSet' <- newAppLoggerSet (appLogFile appSettings)
+    -- Oura/advice code runs in plain IO and logs through this same set.
+    setGlobalLoggerSet loggerSet'
+    appLogger <- makeYesodLogger loggerSet'
     appStatic <-
         (if appMutableStatic appSettings then staticDevel else static)
         (appStaticDir appSettings)

@@ -9,6 +9,7 @@ oura.db
 oura.db-shm
 oura.db-wal
 log/
+nohup.out
 *.hi
 *.o
 *.sqlite3
