@@ -76,6 +76,11 @@ makeFoundation appSettings = do
     -- CLI. Request lines still use wai-logger's own Apache timestamp.
     getTime <- newTimestamp
     let appLogger = YT.Logger { YT.loggerSet = loggerSet', YT.loggerDate = getTime }
+    -- Request lines keep wai-logger's Apache timestamp, so they get their own
+    -- file when ACCESS_LOG_FILE is set. Unset means share loggerSet' as before.
+    appAccessLoggerSet <- case appAccessLogFile appSettings of
+        Nothing -> return loggerSet'
+        path    -> newAppLoggerSet path
     appStatic <-
         (if appMutableStatic appSettings then staticDevel else static)
         (appStaticDir appSettings)
@@ -128,7 +133,7 @@ makeLogWare foundation =
                         (if appIpFromHeader $ appSettings foundation
                             then FromFallback
                             else FromSocket)
-        , destination = Logger $ loggerSet $ appLogger foundation
+        , destination = Logger $ appAccessLoggerSet foundation
         }
 
 

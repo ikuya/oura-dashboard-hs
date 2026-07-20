@@ -44,6 +44,11 @@ copyright: Insert copyright statement here
 # Rotation is handled by logrotate -- see README.
 log-file: "_env:LOG_FILE:"
 
+# Request-log destination. Empty (the default) merges request lines into
+# log-file. Request lines use wai-logger's Apache timestamp while the app's own
+# lines use "%Y-%m-%d %H:%M:%S", so separate files are easier to read.
+access-log-file: "_env:ACCESS_LOG_FILE:"
+
 # App secrets, sourced from .env (loaded via Configuration.Dotenv at startup).
 # SECRET_KEY is required and validated in makeFoundation.
 oura-token:   "_env:OURA_TOKEN:"

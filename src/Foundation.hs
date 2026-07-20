@@ -17,6 +17,7 @@ import Text.Hamlet          (hamletFile)
 import Text.Jasmine         (minifym)
 import Yesod.Default.Util   (addStaticContentExternal)
 import Yesod.Core.Types     (Logger)
+import System.Log.FastLogger (LoggerSet)
 import Control.Monad.Logger (LogSource)
 import Crypto.BCrypt        (validatePassword)
 import qualified Data.Aeson as A
@@ -35,6 +36,10 @@ data App = App
     , appConnPool    :: ConnectionPool -- ^ Database connection pool.
     , appHttpManager :: Manager
     , appLogger      :: Logger
+    , appAccessLoggerSet :: LoggerSet
+      -- ^ Destination for wai-extra's Apache-format request lines. Separate
+      -- from 'appLogger' so the two timestamp formats don't interleave in one
+      -- file; equal to the app's own logger set when ACCESS_LOG_FILE is unset.
     , appOuraClientOverride :: Maybe OuraClient
       -- ^ Test seam: when set, the sync handler uses this client instead of
       -- building a real one from OURA_TOKEN (mirrors the Python test mocking

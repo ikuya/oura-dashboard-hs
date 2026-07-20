@@ -73,6 +73,9 @@ data AppSettings = AppSettings
     , appLogFile                :: Maybe FilePath
     -- ^ Log destination. @Nothing@ (the default) logs to stdout; a path logs
     -- there instead. Rotation is left to logrotate.
+    , appAccessLogFile          :: Maybe FilePath
+    -- ^ Request-log destination. @Nothing@ (the default) merges request lines
+    -- into 'appLogFile', preserving the previous single-file behavior.
     }
 
 instance FromJSON AppSettings where
@@ -110,6 +113,11 @@ instance FromJSON AppSettings where
         -- An unset LOG_FILE arrives as "", which means stdout.
         logFile                   <- o .:? "log-file"     .!= ""
         let appLogFile = if null logFile then Nothing else Just logFile
+
+        -- Likewise, an unset ACCESS_LOG_FILE means "merge into appLogFile".
+        accessLogFile             <- o .:? "access-log-file" .!= ""
+        let appAccessLogFile =
+                if null accessLogFile then Nothing else Just accessLogFile
 
         return AppSettings {..}
 

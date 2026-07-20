@@ -112,6 +112,15 @@ starts with a local-time timestamp:
 ```
 
 Request lines keep wai-logger's Apache format, which carries its own timestamp.
+Because that format differs from the one above, set `ACCESS_LOG_FILE` to send
+request lines to their own file instead of interleaving the two:
+
+```
+127.0.0.1 - - [20/Jul/2026:17:24:00 +0900] "GET / HTTP/1.1" 200 - "" "curl/8.21.0"
+```
+
+`run_oura_dashboard.sh` sets this to `log/oura-dashboard.access.log`. Leaving
+`ACCESS_LOG_FILE` unset merges request lines back into `LOG_FILE`, as before.
 
 ### Rotation
 

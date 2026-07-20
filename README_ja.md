@@ -111,6 +111,15 @@ Info 以上が記録されます。Debug を出すには `YESOD_SHOULD_LOG_ALL=t
 ```
 
 リクエストログ行は wai-logger の Apache 形式のままで、独自のタイムスタンプを持ちます。
+上記のアプリログとは日時形式が異なるため、`ACCESS_LOG_FILE` を設定すると
+リクエストログを別ファイルに分離できます:
+
+```
+127.0.0.1 - - [20/Jul/2026:17:24:00 +0900] "GET / HTTP/1.1" 200 - "" "curl/8.21.0"
+```
+
+`run_oura_dashboard.sh` では `log/oura-dashboard.access.log` が自動的に設定されます。
+`ACCESS_LOG_FILE` を未設定にすると、従来通り `LOG_FILE` に合流します。
 
 ### ローテーション
 
