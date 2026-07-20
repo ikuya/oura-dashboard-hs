@@ -1,8 +1,8 @@
 # oura-dashboard-hs
 
-A Haskell/Yesod port of [oura-dashboard](../oura-dashboard): a local web dashboard
-for Oura Ring biometric data. Fetches data from the Oura Ring API v2 into a local
-SQLite database and serves an existing static frontend (Chart.js) over a JSON API.
+A local web dashboard for Oura Ring biometric data. Fetches data from 
+the Oura Ring API v2 into a local SQLite database and serves an existing 
+static frontend (Chart.js) over a JSON API.
 
 The JSON API is byte-compatible with the Python/Flask original, so the same
 `static/` frontend runs unchanged.
@@ -163,5 +163,3 @@ src/Handler/Home.hs               Serves static/index.html
 app/main.hs                       Web server entry point
 static/                           Existing frontend (index.html, *.js, style.css)
 ```
-
-See `MIGRATION_PLAN.md` for the design decisions behind the port.

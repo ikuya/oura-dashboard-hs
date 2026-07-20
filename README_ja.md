@@ -1,9 +1,8 @@
 # oura-dashboard-hs
 
-[oura-dashboard](../oura-dashboard) の Haskell/Yesod 移植版です。Oura Ring の
-生体データをローカルで閲覧するための Web ダッシュボードで、Oura Ring API v2 から
-取得したデータをローカルの SQLite に保存し、既存の静的フロントエンド (Chart.js) へ
-JSON API 経由で配信します。
+Oura Ring の生体データをローカルで閲覧するための Web ダッシュボード。
+Oura Ring API v2 から取得したデータをローカルの SQLite に保存し、
+既存の静的フロントエンド (Chart.js) へJSON API 経由で配信します。
 
 JSON API は Python/Flask 版とバイト単位で互換なので、`static/` 配下のフロントエンドは
 一切変更せずそのまま動作します。
@@ -163,5 +162,3 @@ src/Handler/Home.hs               static/index.html の配信
 app/main.hs                       Web サーバのエントリポイント
 static/                           既存フロントエンド (index.html, *.js, style.css)
 ```
-
-移植にあたっての設計判断については `MIGRATION_PLAN.md` を参照してください。
