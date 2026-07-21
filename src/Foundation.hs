@@ -82,10 +82,10 @@ instance Yesod App where
             Just root -> root
 
     -- Store session data on the client in encrypted cookies,
-    -- default session idle timeout is 120 minutes
+    -- session idle timeout is 7 days (personal use)
     makeSessionBackend :: App -> IO (Maybe SessionBackend)
     makeSessionBackend _ = Just <$> defaultClientSessionBackend
-        120    -- timeout in minutes
+        (7 * 24 * 60)    -- timeout in minutes (7 days)
         "config/client_session_key.aes"
 
     yesodMiddleware :: ToTypedContent res => Handler res -> Handler res
