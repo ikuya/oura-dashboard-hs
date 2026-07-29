@@ -10,7 +10,6 @@ module Handler.Advice where
 
 import Import
 import qualified Data.Aeson          as A
-import qualified Data.Aeson.Key      as K
 import qualified Data.Aeson.KeyMap   as KM
 import qualified Data.Text           as T
 import Database.Persist.Sql (ConnectionPool, runSqlPool)
@@ -18,20 +17,21 @@ import Control.Concurrent  (forkIO)
 import Data.Char           (isDigit)
 import Network.HTTP.Types (status202, status400, status404, status502)
 
+import DateText        (todayUtc)
+import Json            (jsonLookup)
 import qualified Db
 import qualified Advice
 import Advice (JobStatus (..), AdviceJob (..), statusText)
-import Handler.Api (todayStr)
 
 -- POST /api/advice
 postAdviceR :: Handler Value
 postAdviceR = do
     requireAuth
-    today <- todayStr
+    today <- todayUtc
     healthData <- runDB $ Advice.buildHealthPayload today 14
 
     -- 400 if there is no data at all (any metric list non-empty).
-    let hasData = case lookupJson "metrics" healthData of
+    let hasData = case jsonLookup "metrics" healthData of
             Just (A.Object ms) -> any nonEmptyArr (KM.elems ms)
             _                  -> False
     unless hasData $
@@ -39,7 +39,7 @@ postAdviceR = do
             (A.object ["error" A..= ("データがありません。まずSyncを実行してください。" :: Text)])
 
     let prompt = Advice.buildAdvicePrompt healthData
-        period = fromMaybe A.Null (lookupJson "period" healthData)
+        period = fromMaybe A.Null (jsonLookup "period" healthData)
     app <- getYesod
     jid <- liftIO $ Advice.createAdviceJob (appAdviceJobs app) period
 
@@ -91,18 +91,14 @@ getAdviceEntryR day = do
         Nothing -> sendStatusJSON status404
             (A.object ["error" A..= ("No advice for this date" :: Text)])
         Just entry -> returnJson $ A.object
-            [ "advice"   A..= fromMaybe A.Null (lookupJson "content" entry)
+            [ "advice"   A..= fromMaybe A.Null (jsonLookup "content" entry)
             , "period"   A..= A.object
-                [ "start" A..= fromMaybe A.Null (lookupJson "period_start" entry)
-                , "end"   A..= fromMaybe A.Null (lookupJson "period_end" entry) ]
-            , "saved_at" A..= fromMaybe A.Null (lookupJson "saved_at" entry)
+                [ "start" A..= fromMaybe A.Null (jsonLookup "period_start" entry)
+                , "end"   A..= fromMaybe A.Null (jsonLookup "period_end" entry) ]
+            , "saved_at" A..= fromMaybe A.Null (jsonLookup "saved_at" entry)
             ]
 
 -- helpers ----------------------------------------------------------------
-
-lookupJson :: Text -> A.Value -> Maybe A.Value
-lookupJson k (A.Object o) = KM.lookup (K.fromText k) o
-lookupJson _ _            = Nothing
 
 nonEmptyArr :: A.Value -> Bool
 nonEmptyArr (A.Array a) = not (null a)

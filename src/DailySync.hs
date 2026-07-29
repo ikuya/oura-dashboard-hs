@@ -15,12 +15,13 @@ import ClassyPrelude
 import Control.Monad.Logger        (LogLevel (..), LoggingT, defaultLogStr,
                                     logError, logInfo, runLoggingT)
 import Database.Persist.Sqlite     (createSqlitePool, runSqlPool, runMigrationSilent, sqlDatabase, sqlPoolSize)
-import Data.Time.LocalTime        (utcToZonedTime, hoursToTimeZone)
+import Data.Time.LocalTime        (hoursToTimeZone)
 import qualified Data.Map.Strict  as M
 import System.Exit                (exitWith, ExitCode (..))
 import System.Log.FastLogger      (LoggerSet, flushLogStr, pushLogStr, toLogStr)
 
 import Application (getAppSettings)
+import DateText    (todayIn)
 import Logging     (newAppLoggerSet, newTimestamp, setGlobalLoggerSet)
 import Settings    (AppSettings, appDatabaseConf, appLogFile, appOuraToken,
                     appShouldLogAll)
@@ -32,10 +33,7 @@ backfillDays :: Int
 backfillDays = 7
 
 todayJst :: IO Text
-todayJst = do
-    now <- getCurrentTime
-    let jst = utcToZonedTime (hoursToTimeZone 9) now
-    return $ pack (formatTime defaultTimeLocale "%Y-%m-%d" jst)
+todayJst = todayIn (hoursToTimeZone 9)
 
 dailySyncMain :: IO ()
 dailySyncMain = do

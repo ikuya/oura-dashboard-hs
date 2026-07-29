@@ -31,7 +31,6 @@ import qualified Data.Aeson.Key      as K
 import qualified Data.Aeson.KeyMap   as KM
 import qualified Data.Map.Strict     as M
 import qualified Data.Text.Lazy      as TL
-import Data.Time.Calendar         (addDays)
 import Database.Persist.Sql       (SqlBackend)
 import System.Exit                (ExitCode (..))
 import System.Process             (readCreateProcessWithExitCode, proc)
@@ -41,7 +40,9 @@ import qualified Data.UUID.V4      as UUID
 import Control.Monad.Logger       (LogLevel (..))
 import Data.Time.Clock            (diffUTCTime)
 
+import DateText                   (addDaysT)
 import Db
+import Json                       (jsonText, jsonLookup)
 import Logging                    (logGlobal)
 
 -- | Job lifecycle states.
@@ -108,7 +109,7 @@ appendSystemPrompt =
 -- | Extract the key fields from a metric row for the advice payload.
 extractKeyFields :: Text -> A.Value -> A.Value
 extractKeyFields metric row =
-    let g k = fromMaybe A.Null (lookupJson k row)
+    let g k = fromMaybe A.Null (jsonLookup k row)
         base = [("day", g "day"), ("score", g "score")]
         extra = case metric of
             "sleep"     -> [("contributors", g "contributors")]
@@ -124,14 +125,10 @@ extractKeyFields metric row =
             _ -> []
     in A.Object (KM.fromList (base ++ extra))
 
-lookupJson :: Text -> A.Value -> Maybe A.Value
-lookupJson k (A.Object o) = KM.lookup (K.fromText k) o
-lookupJson _ _            = Nothing
-
 -- | Build the 14-day health payload (period + per-metric key fields).
 buildHealthPayload :: (MonadIO m) => Text -> Int -> ReaderT SqlBackend m A.Value
 buildHealthPayload today days = do
-    let start = tshowDay (addDays (negate (fromIntegral days - 1)) (parseDayT today))
+    let start = addDaysT (negate (fromIntegral days - 1)) today
     bulk <- getDailyMetricsBulk dailyMetricsForAdvice start today
     let metricsObj = KM.fromList
             [ (K.fromText m, A.toJSON (map (extractKeyFields m) (M.findWithDefault [] m bulk)))
@@ -210,17 +207,6 @@ runAdviceJob jobs jid prompt saveAdvice' = do
     elapsedSince t0 = do
         now <- getCurrentTime
         return (tshow (diffUTCTime now t0))
-    periodBounds (A.Object o) = do
-        A.String s <- KM.lookup "start" o
-        A.String e <- KM.lookup "end" o
-        return (s, e)
-    periodBounds _ = Nothing
-
--- Date helpers -----------------------------------------------------------
-
-parseDayT :: Text -> Day
-parseDayT t = case parseTimeM True defaultTimeLocale "%Y-%m-%d" (unpack t) of
-    Just d -> d; Nothing -> error ("bad date: " <> unpack t)
-
-tshowDay :: Day -> Text
-tshowDay = pack . formatTime defaultTimeLocale "%Y-%m-%d"
+    periodBounds v = (,) <$> field "start" <*> field "end"
+      where
+        field k = jsonText =<< jsonLookup k v

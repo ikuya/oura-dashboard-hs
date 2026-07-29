@@ -17,14 +17,12 @@ module Oura
     ) where
 
 import ClassyPrelude
-import qualified Data.Aeson       as A
-import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson                 (Value)
-import qualified Data.Vector      as V
 import Control.Monad.Logger        (LogLevel (..))
 import Network.HTTP.Simple
 import Network.HTTP.Client         (responseTimeoutMicro)
 
+import Json                        (jsonArray, jsonText, jsonLookup)
 import Logging                     (logGlobal)
 
 -- | Error raised by the Oura client. Mirrors oura_client.OuraAPIError:
@@ -83,23 +81,13 @@ realClient token = OuraClient
         go mnext acc = do
             let queryParams = params ++ maybe [] (\t -> [("next_token", t)]) mnext
             body <- httpGet path queryParams
-            let dataArr = case body of
-                    A.Object o -> case KM.lookup "data" o of
-                        Just (A.Array a) -> V.toList a
-                        _                -> []
-                    _ -> []
-                nextTok = case body of
-                    A.Object o -> case KM.lookup "next_token" o of
-                        Just (A.String t) -> Just t
-                        _                 -> Nothing
-                    _ -> Nothing
-                acc' = acc ++ dataArr
+            let page = fromMaybe [] (jsonArray =<< jsonLookup "data" body)
+                acc' = acc ++ page
             logGlobal LevelDebug
-                ("GET " <> path <> ": " <> tshow (length dataArr)
+                ("GET " <> path <> ": " <> tshow (length page)
                  <> " records, " <> tshow (length acc') <> " total")
-            case nextTok of
-                Just t  -> go (Just t) acc'
-                Nothing -> return acc'
+            maybe (return acc') (\t -> go (Just t) acc')
+                  (jsonText =<< jsonLookup "next_token" body)
 
     httpGet :: Text -> [(Text, Text)] -> IO Value
     httpGet path params = do

@@ -13,7 +13,6 @@ module Db where
 
 import ClassyPrelude.Yesod
 import qualified Data.Aeson          as A
-import qualified Data.Aeson.Key      as K
 import qualified Data.Aeson.KeyMap   as KM
 import qualified Data.Map.Strict     as M
 import Database.Persist.Sql       (rawExecute, rawSql, Single (..))
@@ -86,9 +85,7 @@ getLastSyncedDay metric = do
     rows <- rawSql
         "SELECT last_synced_day FROM sync_log WHERE metric = ?"
         [toPersistValue metric]
-    return $ case rows of
-        (Single d : _) -> Just d
-        _              -> Nothing
+    return $ unSingle <$> headMay rows
 
 -- get_daily_metrics
 getDailyMetrics
@@ -113,10 +110,13 @@ getDailyMetricsBulk metrics start end
                   <> ") AND day >= ? AND day <= ? ORDER BY metric, day"
         rows <- rawSql sql
             (map toPersistValue metrics ++ [toPersistValue start, toPersistValue end])
-        let empty = M.fromList [(mk, []) | mk <- metrics] :: M.Map Text [A.Value]
-            add acc (Single mt, Single day, Single score, Single dj) =
-                M.insertWith (\new old -> old ++ new) mt [mergeRow day score (parseDataJson dj)] acc
-        return $ foldl' add empty rows
+        -- The query is ordered by (metric, day) and @flip (++)@ appends, so
+        -- each metric keeps its rows in day order. Union with the all-metrics
+        -- map (left-biased) gives metrics without rows an empty list.
+        let byMetric = M.fromListWith (flip (++))
+                [ (metric, [mergeRow day score (parseDataJson dj)])
+                | (Single metric, Single day, Single score, Single dj) <- rows ]
+        return $ M.union byMetric (M.fromList [ (m, []) | m <- metrics ])
 
 -- get_heartrate
 getHeartrate
@@ -162,15 +162,16 @@ getAdviceForDate day = do
     rows <- rawSql
         "SELECT saved_at, period_start, period_end, content FROM advice_history WHERE substr(saved_at, 1, 10) = ? ORDER BY saved_at DESC LIMIT 1"
         [toPersistValue day]
-    return $ case rows of
-        ((Single savedAt, Single ps, Single pe, Single content) : _) ->
-            Just $ A.object
-                [ "saved_at"     A..= (savedAt :: Text)
-                , "period_start" A..= (ps :: Text)
-                , "period_end"   A..= (pe :: Text)
-                , "content"      A..= (content :: Text)
-                ]
-        _ -> Nothing
+    return $ entryJson <$> headMay rows
+  where
+    entryJson
+        :: (Single Text, Single Text, Single Text, Single Text) -> A.Value
+    entryJson (Single savedAt, Single ps, Single pe, Single content) = A.object
+        [ "saved_at"     A..= savedAt
+        , "period_start" A..= ps
+        , "period_end"   A..= pe
+        , "content"      A..= content
+        ]
 
 -- | Metrics reported by get_sync_status, in the Python order.
 syncStatusMetrics :: [Text]
@@ -190,18 +191,15 @@ getSyncStatus = do
             then countRaw "SELECT COUNT(*) FROM heartrate" []
             else countRaw "SELECT COUNT(*) FROM daily_metrics WHERE metric = ?"
                           [toPersistValue metric]
-        let (lastDay, lastAt) = case logRow of
-                ((Single ld, Single la) : _) -> (ld, la)
-                _ -> (Nothing, Nothing)
+        let (lastDay, lastAt) = maybe (Nothing, Nothing)
+                (\(Single ld, Single la) -> (ld, la)) (headMay logRow)
         return (metric, A.object
             [ "last_day"       A..= (lastDay :: Maybe Text)
             , "last_synced_at" A..= (lastAt :: Maybe Text)
             , "rows"           A..= (cnt :: Int)
             ])
-    return $ A.Object $ KM.fromList [ (K.fromText m, v) | (m, v) <- entries ]
+    return $ A.toJSON (M.fromList entries)
   where
     countRaw sql params = do
         rs <- rawSql sql params
-        return $ case rs of
-            (Single n : _) -> n
-            _              -> 0
+        return $ maybe 0 unSingle (headMay rs)

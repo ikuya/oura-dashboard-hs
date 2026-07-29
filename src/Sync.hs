@@ -25,16 +25,16 @@ module Sync
 import ClassyPrelude hiding (foldM)
 import qualified Data.Aeson       as A
 import Data.Aeson                 (Value)
-import qualified Data.Aeson.Key      as K
 import qualified Data.Aeson.KeyMap   as KM
 import qualified Data.Map.Strict  as M
 import Control.Monad              (foldM)
 import Control.Monad.Logger       (MonadLogger, logError, logInfo)
-import Data.Time.Calendar         (Day, addDays)
 import Data.Time.Clock            (diffUTCTime)
 import Database.Persist.Sql       (SqlBackend, rawSql, Single (..), toPersistValue)
 
+import DateText                   (addDaysT, formatDay, parseDay)
 import Db
+import Json                       (jsonDouble, jsonInt, jsonLookup, jsonText)
 import Oura hiding (getHeartrate)
 import qualified Oura
 
@@ -49,28 +49,6 @@ resilienceLevelOrder =
     [ ("limited", 1), ("adequate", 2), ("solid", 3)
     , ("strong", 4), ("exceptional", 5) ]
 
--- Date helpers (YYYY-MM-DD <-> Day) --------------------------------------
-
-parseDay :: Text -> Day
-parseDay t = case parseTimeM True defaultTimeLocale "%Y-%m-%d" (unpack t) of
-    Just d  -> d
-    Nothing -> error ("invalid date: " <> unpack t)
-
-showDay :: Day -> Text
-showDay = pack . formatTime defaultTimeLocale "%Y-%m-%d"
-
-addDaysT :: Integer -> Text -> Text
-addDaysT n = showDay . addDays n . parseDay
-
--- | Look up a key in a JSON object, if the Value is an object.
-jsonLookup :: Text -> Value -> Maybe Value
-jsonLookup k (A.Object o) = KM.lookup (K.fromText k) o
-jsonLookup _ _            = Nothing
-
-asNumber :: Value -> Maybe Value
-asNumber v@(A.Number _) = Just v
-asNumber _              = Nothing
-
 -- _extract_score ---------------------------------------------------------
 
 -- | Extract the scalar score for a metric from a raw API record. Returns a
@@ -83,21 +61,18 @@ extractScore metric record = case metric of
     "activity"   -> jsonLookup "score" record
     "stress"     -> jsonLookup "stress_high" record
     "spo2"       -> case jsonLookup "spo2_percentage" record of
-        Just (A.Object o) -> KM.lookup "average" o
-        other             -> other
+        Just nested@(A.Object _) -> jsonLookup "average" nested
+        other                    -> other
     "resilience" -> do
-        lvl <- jsonLookup "level" record
-        case lvl of
-            A.String s -> A.Number . fromIntegral <$> lookup s resilienceLevelOrder
-            _          -> Nothing
+        level <- jsonText =<< jsonLookup "level" record
+        A.Number . fromIntegral <$> lookup level resilienceLevelOrder
     "cardiovascular_age" -> jsonLookup "vascular_age" record
     "temperature"        -> jsonLookup "temperature_deviation" record
     _ -> Nothing
 
--- | The score as a Maybe Double for the DB column.
-scoreToDouble :: Maybe Value -> Maybe Double
-scoreToDouble (Just (A.Number n)) = Just (realToFrac n)
-scoreToDouble _                   = Nothing
+-- | The @day@ field of a raw API record; records without one are skipped.
+recordDay :: Value -> Maybe Text
+recordDay r = jsonText =<< jsonLookup "day" r
 
 -- find_missing_range -----------------------------------------------------
 
@@ -129,35 +104,29 @@ syncDailyMetric
     -> ReaderT SqlBackend m Int
 syncDailyMetric client metric start end = do
     records <- liftIO $ fetchFn client metric start end
-    count <- foldM writeRecord 0 records
-    when (metric == "readiness" && not (null records)) $
-        forM_ records writeTemperature >> updateSyncLog "temperature" end
+    let dated = [ (day, r) | r <- records, Just day <- [recordDay r] ]
+        count = length dated
+    forM_ dated $ \(day, r) ->
+        upsertDailyMetric metric day (jsonDouble =<< extractScore metric r) r
+    when (metric == "readiness" && not (null records)) $ do
+        forM_ dated (uncurry writeTemperature)
+        updateSyncLog "temperature" end
     $logInfo ("sync " <> metric <> " " <> start <> ".." <> end
         <> ": " <> tshow count <> " rows")
     return count
   where
-    writeRecord acc r = case jsonLookup "day" r of
-        Just (A.String day) -> do
-            let score = scoreToDouble (extractScore metric r)
-            upsertDailyMetric metric day score r
-            return (acc + 1)
-        _ -> return acc
-
-    writeTemperature r = case jsonLookup "day" r of
-        Just (A.String day) -> do
-            let tempRecord = A.Object $ KM.fromList
-                    [ ("day", A.String day)
-                    , ("temperature_deviation",
-                        fromMaybe A.Null (jsonLookup "temperature_deviation" r))
-                    , ("temperature_trend_deviation",
-                        fromMaybe A.Null (jsonLookup "temperature_trend_deviation" r))
-                    , ("body_temperature_score",
-                        fromMaybe A.Null (jsonLookup "contributors" r
-                                          >>= jsonLookup "body_temperature"))
-                    ]
-                score = scoreToDouble (asNumber =<< jsonLookup "temperature_deviation" r)
-            upsertDailyMetric "temperature" day score tempRecord
-        _ -> return ()
+    writeTemperature day r =
+        upsertDailyMetric "temperature" day
+            (jsonDouble =<< jsonLookup "temperature_deviation" r)
+            (A.Object $ KM.fromList
+                [ ("day", A.String day)
+                , ("temperature_deviation", field "temperature_deviation")
+                , ("temperature_trend_deviation", field "temperature_trend_deviation")
+                , ("body_temperature_score", fromMaybe A.Null
+                    (jsonLookup "contributors" r >>= jsonLookup "body_temperature"))
+                ])
+      where
+        field k = fromMaybe A.Null (jsonLookup k r)
 
 -- | Dispatch to the right client method for a daily metric.
 fetchFn :: OuraClient -> Text -> (Text -> Text -> IO [Value])
@@ -189,27 +158,20 @@ backfillRanges metric backfillDays today = do
                 "SELECT day FROM daily_metrics WHERE metric = ? AND day >= ? AND day <= ? AND score IS NOT NULL"
                 [toPersistValue metric, toPersistValue windowStart, toPersistValue today]
             let existing = setFromList [ d | Single d <- rows ] :: Set Text
-                days = [ showDay d | d <- [parseDay windowStart .. parseDay today] ]
+                days = [ formatDay d | d <- [parseDay windowStart .. parseDay today] ]
                 isMissing d = not (d `member` existing) || d == today
             return (collectGaps isMissing days)
 
--- | Group consecutive missing days into (start, end) ranges. A gap still open
--- at the final day closes at that day (which is always @today@, always missing).
+-- | Group consecutive missing days into (start, end) ranges. @days@ is a
+-- contiguous run of dates, so every maximal group of missing days is exactly
+-- one range — including a group that runs to the final day (always @today@,
+-- which is always missing).
 collectGaps :: (Text -> Bool) -> [Text] -> [(Text, Text)]
-collectGaps isMissing days = go Nothing days
+collectGaps isMissing = mapMaybe gapRange . groupBy ((==) `on` isMissing)
   where
-    lastDay = case reverse days of (d:_) -> Just d; [] -> Nothing
-    go mstart [] = case (mstart, lastDay) of
-        (Just s, Just l) -> [(s, l)]
-        _                -> []
-    go mstart (d:ds)
-        | isMissing d = case mstart of
-            Nothing -> go (Just d) ds
-            Just _  -> go mstart ds
-        | otherwise = case mstart of
-            Nothing -> go Nothing ds
-            Just s  -> (s, prevDay d) : go Nothing ds
-    prevDay = addDaysT (-1)
+    gapRange grp = case grp of
+        (d:_) | isMissing d -> (,) d <$> lastMay grp
+        _                   -> Nothing
 
 -- run_sync ---------------------------------------------------------------
 
@@ -221,6 +183,28 @@ data SyncResult = SyncResult
 allDailyMetrics :: [Text]
 allDailyMetrics =
     ["sleep", "readiness", "activity", "stress", "spo2", "resilience", "cardiovascular_age"]
+
+-- | Rows written by one fetch range, plus the failure that stopped it.
+type RangeResult = (Int, Maybe Text)
+
+-- | Run an action over each range in turn, summing the rows written and
+-- stopping at the first failure (the Python loop breaks likewise). Rows
+-- written before the failure are still reported.
+foldRanges
+    :: (Monad m) => ((Text, Text) -> m RangeResult) -> [(Text, Text)] -> m RangeResult
+foldRanges run = go 0
+  where
+    go total [] = return (total, Nothing)
+    go total (range:rest) = do
+        (rows, merr) <- run range
+        case merr of
+            Just err -> return (total + rows, Just err)
+            Nothing  -> go (total + rows) rest
+
+-- | A caught 'OuraError' contributes no rows, mirroring the Python handler.
+rangeResult :: Either Text Int -> RangeResult
+rangeResult (Left err)   = (0, Just err)
+rangeResult (Right rows) = (rows, Nothing)
 
 -- | Run incremental sync for all (or specified) metrics.
 runSync
@@ -251,78 +235,54 @@ runSync today client requestedStart requestedEnd mmetrics backfillDays = do
     step end acc metric
         | metric == "temperature" = return acc  -- derived from readiness
         | otherwise = do
-            rng0 <- findMissingRange today metric end
-            let rng = case requestedStart of
-                    Just s  -> Just (s, end)
-                    Nothing -> rng0
-            backfill <- if backfillDays > 0 && isNothing requestedStart
-                        then backfillRanges metric backfillDays today
-                        else return []
-            let covered r = any (\(bs, be) -> bs <= fst r && be >= snd r) backfill
-                incremental = case rng of
-                    Just r | not (covered r) -> [r]
-                    _                        -> []
-                ranges = incremental ++ backfill
-            if null ranges
-                then return acc { syncedCounts = M.insert metric 0 (syncedCounts acc) }
-                else if metric == "heartrate"
-                    then syncHeartrateRanges acc end ranges
-                    else syncDailyRanges acc metric ranges
+            ranges <- rangesFor end metric
+            (rows, merr) <- foldRanges (syncRange metric) ranges
+            return SyncResult
+                { syncedCounts = M.insert metric rows (syncedCounts acc)
+                , syncErrors   = maybe id (M.insert metric) merr (syncErrors acc)
+                }
 
-    -- Daily metric: fetch each range, catch OuraError per range.
-    syncDailyRanges acc metric ranges = do
-        (total, merr) <- foldM (\(t, e) (fs, fe) ->
-            case e of
-                Just _ -> return (t, e)  -- stop after first error (Python breaks)
-                Nothing -> do
-                    r <- tryOura metric $ do
-                        c <- syncDailyMetric client metric fs fe
-                        updateSyncLog metric fe
-                        return c
-                    case r of
-                        Left msg -> return (t, Just msg)
-                        Right c  -> return (t + c, Nothing)
-            ) (0, Nothing) ranges
-        return acc
-            { syncedCounts = M.insert metric total (syncedCounts acc)
-            , syncErrors   = maybe (syncErrors acc)
-                                   (\m -> M.insert metric m (syncErrors acc)) merr
-            }
+    -- The incremental range (or the caller's explicit start) plus the backfill
+    -- gaps, dropping an incremental range a backfill range already covers.
+    rangesFor end metric = do
+        incremental <- case requestedStart of
+            Just start -> return (Just (start, end))
+            Nothing    -> findMissingRange today metric end
+        backfill <- if backfillDays > 0 && isNothing requestedStart
+                    then backfillRanges metric backfillDays today
+                    else return []
+        let covered (s, e) = any (\(bs, be) -> bs <= s && be >= e) backfill
+        return (filter (not . covered) (maybe [] pure incremental) ++ backfill)
+
+    syncRange metric
+        | metric == "heartrate" = syncHeartrateRange
+        | otherwise             = syncDailyRange metric
+
+    syncDailyRange metric (fetchStart, fetchEnd) =
+        rangeResult <$> tryOura metric (do
+            rows <- syncDailyMetric client metric fetchStart fetchEnd
+            updateSyncLog metric fetchEnd
+            return rows)
 
     -- Heartrate: each fetch range is walked backwards in <=30-day windows.
-    syncHeartrateRanges acc end ranges = do
-        (total, merr) <- foldM (\(t, e) (fs, fe) ->
-            case e of
-                Just _  -> return (t, e)
-                Nothing -> hrRange t fs fe end
-            ) (0, Nothing) ranges
-        return acc
-            { syncedCounts = M.insert "heartrate" total (syncedCounts acc)
-            , syncErrors   = maybe (syncErrors acc)
-                                   (\m -> M.insert "heartrate" m (syncErrors acc)) merr
-            }
-
-    hrRange total fetchStart fetchEnd _fullEnd = loop total fetchEnd
+    syncHeartrateRange (fetchStart, fetchEnd) = go 0 fetchEnd
       where
-        loop t windowEnd = do
+        go total windowEnd = do
             let windowStart = max fetchStart (addDaysT (-29) windowEnd)
             r <- tryOura "heartrate" $ do
                 recs <- liftIO $ Oura.getHeartrate client windowStart windowEnd
-                c <- upsertHeartrateBatch (map toHrPair recs)
+                rows <- upsertHeartrateBatch (map toHrPair recs)
                 updateSyncLog "heartrate" fetchEnd
-                return c
+                return rows
             case r of
-                Left msg -> return (t, Just msg)
-                Right c ->
-                    if windowStart <= fetchStart
-                        then return (t + c, Nothing)
-                        else loop (t + c) (addDaysT (-1) windowStart)
+                Left msg -> return (total, Just msg)
+                Right rows
+                    | windowStart <= fetchStart -> return (total + rows, Nothing)
+                    | otherwise -> go (total + rows) (addDaysT (-1) windowStart)
 
     toHrPair v =
-        ( case jsonLookup "timestamp" v of Just (A.String s) -> s; _ -> ""
-        , case jsonLookup "bpm" v of
-            Just (A.Number n) -> Just (round n)
-            _                 -> Nothing
+        ( fromMaybe "" (jsonText =<< jsonLookup "timestamp" v)
+        , jsonInt =<< jsonLookup "bpm" v
         )
 
 -- | Run a DB+client action, catching OuraError and returning its message.
