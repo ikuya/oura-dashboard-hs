@@ -46,6 +46,28 @@ spec = do
                 addRequestHeader ("Content-Type", "application/json")
             statusIs 401
 
+        -- A body that cannot be parsed is treated as {} (no password), the way
+        -- Flask's get_json(silent=True) did, rather than surfacing as a 500.
+        it "login with malformed JSON returns 401" $ do
+            request $ do
+                setMethod "POST"
+                setUrl LoginR
+                setRequestBody "{not json"
+                addRequestHeader ("Content-Type", "application/json")
+            statusIs 401
+
+        it "login with no body returns 401" $ do
+            request $ setMethod "POST" >> setUrl LoginR
+            statusIs 401
+
+        it "login with non-JSON content type returns 401" $ do
+            request $ do
+                setMethod "POST"
+                setUrl LoginR
+                setRequestBody "{\"password\":\"test-password\"}"
+                addRequestHeader ("Content-Type", "text/plain")
+            statusIs 401
+
         it "logout then protected endpoint returns 401" $ do
             login
             request $ setMethod "POST" >> setUrl LogoutR
