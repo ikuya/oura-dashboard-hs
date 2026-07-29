@@ -22,8 +22,9 @@ import Control.Monad.Logger        (LogLevel (..))
 import Network.HTTP.Simple
 import Network.HTTP.Client         (responseTimeoutMicro)
 
+import DateText                    (DateRange (..), DayText (..))
 import Json                        (jsonArray, jsonText, jsonLookup)
-import Logging                     (logGlobal)
+import Logging                     (AppLog (..))
 
 -- | Error raised by the Oura client. Mirrors oura_client.OuraAPIError:
 -- carries an optional HTTP status code and a message.
@@ -34,18 +35,18 @@ data OuraError = OuraError
 
 instance Exception OuraError
 
--- | The set of fetch operations the sync layer needs. Each takes a start and
--- end date (YYYY-MM-DD) and returns the concatenated @data@ array.
+-- | The set of fetch operations the sync layer needs. Each takes an inclusive
+-- date range and returns the concatenated @data@ array.
 data OuraClient = OuraClient
-    { getDailySleep             :: Text -> Text -> IO [Value]
-    , getDailyReadiness         :: Text -> Text -> IO [Value]
-    , getDailyActivity          :: Text -> Text -> IO [Value]
-    , getDailyStress            :: Text -> Text -> IO [Value]
-    , getDailySpo2              :: Text -> Text -> IO [Value]
-    , getDailyResilience        :: Text -> Text -> IO [Value]
-    , getDailyCardiovascularAge :: Text -> Text -> IO [Value]
-    , getVO2Max                 :: Text -> Text -> IO [Value]
-    , getHeartrate              :: Text -> Text -> IO [Value]
+    { getDailySleep             :: DateRange -> IO [Value]
+    , getDailyReadiness         :: DateRange -> IO [Value]
+    , getDailyActivity          :: DateRange -> IO [Value]
+    , getDailyStress            :: DateRange -> IO [Value]
+    , getDailySpo2              :: DateRange -> IO [Value]
+    , getDailyResilience        :: DateRange -> IO [Value]
+    , getDailyCardiovascularAge :: DateRange -> IO [Value]
+    , getVO2Max                 :: DateRange -> IO [Value]
+    , getHeartrate              :: DateRange -> IO [Value]
     }
 
 baseUrl :: Text
@@ -54,9 +55,10 @@ baseUrl = "https://api.ouraring.com"
 apiTimeoutMicros :: Int
 apiTimeoutMicros = 15 * 1000000
 
--- | Build the real client bound to a bearer token.
-realClient :: Text -> OuraClient
-realClient token = OuraClient
+-- | Build the real client bound to a bearer token. Fetches run in plain IO,
+-- so the log destination is passed in rather than looked up.
+realClient :: AppLog -> Text -> OuraClient
+realClient appLog token = OuraClient
     { getDailySleep             = getDated "/v2/usercollection/daily_sleep"
     , getDailyReadiness         = getDated "/v2/usercollection/daily_readiness"
     , getDailyActivity          = getDated "/v2/usercollection/daily_activity"
@@ -65,14 +67,15 @@ realClient token = OuraClient
     , getDailyResilience        = getDated "/v2/usercollection/daily_resilience"
     , getDailyCardiovascularAge = getDated "/v2/usercollection/daily_cardiovascular_age"
     , getVO2Max                 = getDated "/v2/usercollection/vO2_max"
-    , getHeartrate              = \start end -> getPaged
+    , getHeartrate              = \range -> getPaged
         "/v2/usercollection/heartrate"
-        [ ("start_datetime", dateToDatetime start False)
-        , ("end_datetime",   dateToDatetime end True) ]
+        [ ("start_datetime", dateToDatetime (rangeStart range) False)
+        , ("end_datetime",   dateToDatetime (rangeEnd range) True) ]
     }
   where
-    getDated path start end = getPaged path
-        [("start_date", start), ("end_date", end)]
+    getDated path range = getPaged path
+        [ ("start_date", unDayText (rangeStart range))
+        , ("end_date",   unDayText (rangeEnd range)) ]
 
     -- Follow next_token pagination, concatenating each page's data array.
     getPaged :: Text -> [(Text, Text)] -> IO [Value]
@@ -83,7 +86,7 @@ realClient token = OuraClient
             body <- httpGet path queryParams
             let page = fromMaybe [] (jsonArray =<< jsonLookup "data" body)
                 acc' = acc ++ page
-            logGlobal LevelDebug
+            writeLog appLog LevelDebug
                 ("GET " <> path <> ": " <> tshow (length page)
                  <> " records, " <> tshow (length acc') <> " total")
             maybe (return acc') (\t -> go (Just t) acc')
@@ -105,14 +108,14 @@ realClient token = OuraClient
         eresp <- try (httpJSON req)
         case eresp of
             Left (e :: HttpException) -> do
-                logGlobal LevelWarn ("GET " <> path <> " failed: " <> tshow e)
+                writeLog appLog LevelWarn ("GET " <> path <> " failed: " <> tshow e)
                 throwIO $ OuraError Nothing ("Request failed: " <> tshow e)
             Right resp -> do
                 let status = getResponseStatusCode resp
                 if status >= 200 && status < 300
                     then return (getResponseBody resp)
                     else do
-                        logGlobal LevelWarn
+                        writeLog appLog LevelWarn
                             ("GET " <> path <> " returned HTTP " <> tshow status)
                         throwIO (mkHttpError status)
 
@@ -125,6 +128,6 @@ realClient token = OuraClient
         in OuraError (Just status) msg
 
 -- | @date_to_datetime_str@ from the Python client.
-dateToDatetime :: Text -> Bool -> Text
-dateToDatetime dateStr endOfDay =
+dateToDatetime :: DayText -> Bool -> Text
+dateToDatetime (DayText dateStr) endOfDay =
     dateStr <> "T" <> (if endOfDay then "23:59:59" else "00:00:00")

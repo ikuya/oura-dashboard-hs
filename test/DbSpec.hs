@@ -16,6 +16,8 @@ import qualified Data.Aeson.Key as K
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Map.Strict as M
 
+import DateText
+import Metric
 import Model (migrateAll)
 import Db
 
@@ -37,59 +39,59 @@ spec = do
     describe "upsert_daily_metric / get_daily_metrics" $ do
         it "upserts and gets a daily metric" $ do
             rows <- runMem $ do
-                upsertDailyMetric "sleep" "2024-01-01" (Just 85)
+                upsertDailyMetric Sleep "2024-01-01" (Just 85)
                     (A.object ["score" .= (85 :: Int), "day" .= ("2024-01-01" :: Text)])
-                getDailyMetrics "sleep" "2024-01-01" "2024-01-01"
+                getDailyMetrics Sleep (DateRange "2024-01-01" "2024-01-01")
             length rows `shouldBe` 1
             field "day" (headEx rows) `shouldBe` Just (A.String "2024-01-01")
             field "score" (headEx rows) `shouldBe` Just (A.Number 85)
 
         it "replaces an existing record" $ do
             rows <- runMem $ do
-                upsertDailyMetric "sleep" "2024-01-01" (Just 70) (A.object ["score" .= (70 :: Int)])
-                upsertDailyMetric "sleep" "2024-01-01" (Just 90) (A.object ["score" .= (90 :: Int)])
-                getDailyMetrics "sleep" "2024-01-01" "2024-01-01"
+                upsertDailyMetric Sleep "2024-01-01" (Just 70) (A.object ["score" .= (70 :: Int)])
+                upsertDailyMetric Sleep "2024-01-01" (Just 90) (A.object ["score" .= (90 :: Int)])
+                getDailyMetrics Sleep (DateRange "2024-01-01" "2024-01-01")
             length rows `shouldBe` 1
             field "score" (headEx rows) `shouldBe` Just (A.Number 90)
 
         it "respects the date range" $ do
             rows <- runMem $ do
                 forM_ [("2024-01-01", 70), ("2024-01-05", 80), ("2024-01-10", 90)] $ \(d, s) ->
-                    upsertDailyMetric "sleep" d (Just s) (A.object ["score" .= s])
-                getDailyMetrics "sleep" "2024-01-03" "2024-01-07"
+                    upsertDailyMetric Sleep d (Just s) (A.object ["score" .= s])
+                getDailyMetrics Sleep (DateRange "2024-01-03" "2024-01-07")
             length rows `shouldBe` 1
             field "day" (headEx rows) `shouldBe` Just (A.String "2024-01-05")
 
         it "returns rows sorted by day" $ do
             rows <- runMem $ do
                 forM_ ["2024-01-03", "2024-01-01", "2024-01-02"] $ \d ->
-                    upsertDailyMetric "readiness" d (Just 75) (A.object ["score" .= (75 :: Int)])
-                getDailyMetrics "readiness" "2024-01-01" "2024-01-03"
+                    upsertDailyMetric Readiness d (Just 75) (A.object ["score" .= (75 :: Int)])
+                getDailyMetrics Readiness (DateRange "2024-01-01" "2024-01-03")
             let days = mapMaybe (field "day") rows
             days `shouldBe` [A.String "2024-01-01", A.String "2024-01-02", A.String "2024-01-03"]
 
         it "merges json fields" $ do
             rows <- runMem $ do
-                upsertDailyMetric "sleep" "2024-01-01" (Just 80)
+                upsertDailyMetric Sleep "2024-01-01" (Just 80)
                     (A.object ["score" .= (80 :: Int), "contributors" .= A.object ["deep_sleep" .= (90 :: Int)]])
-                getDailyMetrics "sleep" "2024-01-01" "2024-01-01"
+                getDailyMetrics Sleep (DateRange "2024-01-01" "2024-01-01")
             field "contributors" (headEx rows)
                 `shouldBe` Just (A.object ["deep_sleep" .= (90 :: Int)])
 
     describe "get_daily_metrics_bulk" $ do
         it "returns rows keyed by metric" $ do
             result <- runMem $ do
-                upsertDailyMetric "sleep" "2024-01-01" (Just 80) (A.object ["score" .= (80 :: Int)])
-                upsertDailyMetric "readiness" "2024-01-01" (Just 70) (A.object ["score" .= (70 :: Int)])
-                getDailyMetricsBulk ["sleep", "readiness", "activity"] "2024-01-01" "2024-01-01"
-            (field "score" =<< headMay (M.findWithDefault [] "sleep" result))
+                upsertDailyMetric Sleep "2024-01-01" (Just 80) (A.object ["score" .= (80 :: Int)])
+                upsertDailyMetric Readiness "2024-01-01" (Just 70) (A.object ["score" .= (70 :: Int)])
+                getDailyMetricsBulk [Sleep, Readiness, Activity] (DateRange "2024-01-01" "2024-01-01")
+            (field "score" =<< headMay (M.findWithDefault [] Sleep result))
                 `shouldBe` Just (A.Number 80)
-            (field "score" =<< headMay (M.findWithDefault [] "readiness" result))
+            (field "score" =<< headMay (M.findWithDefault [] Readiness result))
                 `shouldBe` Just (A.Number 70)
-            M.lookup "activity" result `shouldBe` Just []
+            M.lookup Activity result `shouldBe` Just []
 
         it "returns empty map for empty metrics" $ do
-            result <- runMem $ getDailyMetricsBulk [] "2024-01-01" "2024-01-31"
+            result <- runMem $ getDailyMetricsBulk [] (DateRange "2024-01-01" "2024-01-31")
             result `shouldBe` M.empty
 
     describe "upsert_heartrate_batch / get_heartrate" $ do
@@ -97,7 +99,7 @@ spec = do
             (count, rows) <- runMem $ do
                 c <- upsertHeartrateBatch
                     [("2024-01-01T00:00:00", Just 60), ("2024-01-01T00:01:00", Just 62)]
-                rs <- getHeartrate "2024-01-01" "2024-01-01"
+                rs <- getHeartrate (DateRange "2024-01-01" "2024-01-01")
                 return (c, rs)
             count `shouldBe` 2
             length rows `shouldBe` 2
@@ -106,7 +108,7 @@ spec = do
             rows <- runMem $ do
                 _ <- upsertHeartrateBatch [("2024-01-01T00:00:00", Just 60)]
                 _ <- upsertHeartrateBatch [("2024-01-01T00:00:00", Just 60)]
-                getHeartrate "2024-01-01" "2024-01-01"
+                getHeartrate (DateRange "2024-01-01" "2024-01-01")
             length rows `shouldBe` 1
 
         it "skips invalid records" $ do
@@ -120,26 +122,26 @@ spec = do
                     [ ("2024-01-01T12:00:00", Just 60)
                     , ("2024-01-05T12:00:00", Just 65)
                     , ("2024-01-10T12:00:00", Just 70) ]
-                getHeartrate "2024-01-03" "2024-01-07"
+                getHeartrate (DateRange "2024-01-03" "2024-01-07")
             length rows `shouldBe` 1
             field "bpm" (headEx rows) `shouldBe` Just (A.Number 65)
 
     describe "sync_log" $ do
         it "updates and gets last synced day" $ do
             d <- runMem $ do
-                updateSyncLog "sleep" "2024-01-15"
-                getLastSyncedDay "sleep"
+                updateSyncLog (Daily Sleep) "2024-01-15"
+                getLastSyncedDay (Daily Sleep)
             d `shouldBe` Just "2024-01-15"
 
         it "returns Nothing when not synced" $ do
-            d <- runMem $ getLastSyncedDay "sleep"
+            d <- runMem $ getLastSyncedDay (Daily Sleep)
             d `shouldBe` Nothing
 
         it "replaces old value" $ do
             d <- runMem $ do
-                updateSyncLog "sleep" "2024-01-10"
-                updateSyncLog "sleep" "2024-01-20"
-                getLastSyncedDay "sleep"
+                updateSyncLog (Daily Sleep) "2024-01-10"
+                updateSyncLog (Daily Sleep) "2024-01-20"
+                getLastSyncedDay (Daily Sleep)
             d `shouldBe` Just "2024-01-20"
 
     describe "advice_history" $ do
@@ -150,7 +152,7 @@ spec = do
                 dates <- getAdviceDates
                 case dates of
                     (d : _) -> case field "day" d of
-                        Just (A.String day) -> getAdviceForDate day
+                        Just (A.String day) -> getAdviceForDate (DayText day)
                         _ -> return Nothing
                     _ -> return Nothing
             (field "content" =<< entry) `shouldBe` Just (A.String "健康状態は良好です。")
@@ -184,9 +186,9 @@ spec = do
 
         it "counts rows" $ do
             status <- runMem $ do
-                upsertDailyMetric "sleep" "2024-01-01" (Just 80) (A.object ["score" .= (80 :: Int)])
-                upsertDailyMetric "sleep" "2024-01-02" (Just 85) (A.object ["score" .= (85 :: Int)])
-                updateSyncLog "sleep" "2024-01-02"
+                upsertDailyMetric Sleep "2024-01-01" (Just 80) (A.object ["score" .= (80 :: Int)])
+                upsertDailyMetric Sleep "2024-01-02" (Just 85) (A.object ["score" .= (85 :: Int)])
+                updateSyncLog (Daily Sleep) "2024-01-02"
                 getSyncStatus
             let sleepRows = field "sleep" status >>= field "rows"
                 sleepLast = field "sleep" status >>= field "last_day"

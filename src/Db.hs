@@ -17,6 +17,9 @@ import qualified Data.Aeson.KeyMap   as KM
 import qualified Data.Map.Strict     as M
 import Database.Persist.Sql       (rawExecute, rawSql, Single (..))
 
+import DateText
+import Metric
+
 -- | Current UTC time as an ISO-8601 string, matching Python's
 -- @datetime.now(timezone.utc).isoformat()@ which yields e.g.
 -- @2026-04-12T04:00:26.448555+00:00@ (microseconds, +00:00 offset).
@@ -35,7 +38,7 @@ parseDataJson t = case A.decodeStrict (encodeUtf8 t) of
 -- | Merge day/score onto the parsed data_json object. The DB @score@ column
 -- takes precedence over any @score@ inside data_json (mirrors db.py's
 -- @{**data, "day": ..., "score": ...}@).
-mergeRow :: Text -> Maybe Double -> A.Object -> A.Value
+mergeRow :: DayText -> Maybe Double -> A.Object -> A.Value
 mergeRow day mscore o =
     A.Object $ KM.insert "score" (maybe A.Null A.toJSON mscore)
              $ KM.insert "day" (A.toJSON day) o
@@ -43,13 +46,13 @@ mergeRow day mscore o =
 -- upsert_daily_metric
 upsertDailyMetric
     :: (MonadIO m)
-    => Text -> Text -> Maybe Double -> A.Value -> ReaderT SqlBackend m ()
+    => DailyMetric -> DayText -> Maybe Double -> A.Value -> ReaderT SqlBackend m ()
 upsertDailyMetric metric day score dataObj = do
     now <- nowIso
     let dataText = decodeUtf8 (toStrict (A.encode dataObj))
     rawExecute
         "INSERT OR REPLACE INTO daily_metrics (metric, day, score, data_json, synced_at) VALUES (?, ?, ?, ?, ?)"
-        [ toPersistValue metric
+        [ toPersistValue (dailyMetricName metric)
         , toPersistValue day
         , toPersistValue score
         , toPersistValue dataText
@@ -72,36 +75,37 @@ upsertHeartrateBatch records = do
     return (length valid)
 
 -- update_sync_log
-updateSyncLog :: (MonadIO m) => Text -> Text -> ReaderT SqlBackend m ()
+updateSyncLog :: (MonadIO m) => Metric -> DayText -> ReaderT SqlBackend m ()
 updateSyncLog metric lastDay = do
     now <- nowIso
     rawExecute
         "INSERT OR REPLACE INTO sync_log (metric, last_synced_day, last_synced_at) VALUES (?, ?, ?)"
-        [toPersistValue metric, toPersistValue lastDay, toPersistValue now]
+        [toPersistValue (metricName metric), toPersistValue lastDay, toPersistValue now]
 
 -- get_last_synced_day
-getLastSyncedDay :: (MonadIO m) => Text -> ReaderT SqlBackend m (Maybe Text)
+getLastSyncedDay :: (MonadIO m) => Metric -> ReaderT SqlBackend m (Maybe DayText)
 getLastSyncedDay metric = do
     rows <- rawSql
         "SELECT last_synced_day FROM sync_log WHERE metric = ?"
-        [toPersistValue metric]
+        [toPersistValue (metricName metric)]
     return $ unSingle <$> headMay rows
 
 -- get_daily_metrics
 getDailyMetrics
-    :: (MonadIO m) => Text -> Text -> Text -> ReaderT SqlBackend m [A.Value]
-getDailyMetrics metric start end = do
+    :: (MonadIO m) => DailyMetric -> DateRange -> ReaderT SqlBackend m [A.Value]
+getDailyMetrics metric (DateRange start end) = do
     rows <- rawSql
         "SELECT day, score, data_json FROM daily_metrics WHERE metric = ? AND day >= ? AND day <= ? ORDER BY day"
-        [toPersistValue metric, toPersistValue start, toPersistValue end]
+        [toPersistValue (dailyMetricName metric), toPersistValue start, toPersistValue end]
     return [ mergeRow day score (parseDataJson dj)
            | (Single day, Single score, Single dj) <- rows ]
 
 -- get_daily_metrics_bulk
 getDailyMetricsBulk
     :: (MonadIO m)
-    => [Text] -> Text -> Text -> ReaderT SqlBackend m (Map Text [A.Value])
-getDailyMetricsBulk metrics start end
+    => [DailyMetric] -> DateRange
+    -> ReaderT SqlBackend m (Map DailyMetric [A.Value])
+getDailyMetricsBulk metrics (DateRange start end)
     | null metrics = return mempty
     | otherwise = do
         let placeholders = intercalate "," (map (const "?") metrics)
@@ -109,19 +113,21 @@ getDailyMetricsBulk metrics start end
                   <> placeholders
                   <> ") AND day >= ? AND day <= ? ORDER BY metric, day"
         rows <- rawSql sql
-            (map toPersistValue metrics ++ [toPersistValue start, toPersistValue end])
+            (map (toPersistValue . dailyMetricName) metrics
+                ++ [toPersistValue start, toPersistValue end])
         -- The query is ordered by (metric, day) and @flip (++)@ appends, so
         -- each metric keeps its rows in day order. Union with the all-metrics
         -- map (left-biased) gives metrics without rows an empty list.
         let byMetric = M.fromListWith (flip (++))
                 [ (metric, [mergeRow day score (parseDataJson dj)])
-                | (Single metric, Single day, Single score, Single dj) <- rows ]
+                | (Single name, Single day, Single score, Single dj) <- rows
+                , Just metric <- [parseDailyMetric name] ]
         return $ M.union byMetric (M.fromList [ (m, []) | m <- metrics ])
 
 -- get_heartrate
 getHeartrate
-    :: (MonadIO m) => Text -> Text -> ReaderT SqlBackend m [A.Value]
-getHeartrate start end = do
+    :: (MonadIO m) => DateRange -> ReaderT SqlBackend m [A.Value]
+getHeartrate (DateRange start end) = do
     rows <- rawSql
         "SELECT timestamp, bpm FROM heartrate WHERE day >= ? AND day <= ? ORDER BY timestamp"
         [toPersistValue start, toPersistValue end]
@@ -130,7 +136,7 @@ getHeartrate start end = do
 
 -- save_advice
 saveAdvice
-    :: (MonadIO m) => Text -> Text -> Text -> ReaderT SqlBackend m ()
+    :: (MonadIO m) => DayText -> DayText -> Text -> ReaderT SqlBackend m ()
 saveAdvice periodStart periodEnd content = do
     now <- nowIso
     rawExecute
@@ -157,7 +163,7 @@ getAdviceDates = do
 
 -- get_advice_for_date
 getAdviceForDate
-    :: (MonadIO m) => Text -> ReaderT SqlBackend m (Maybe A.Value)
+    :: (MonadIO m) => DayText -> ReaderT SqlBackend m (Maybe A.Value)
 getAdviceForDate day = do
     rows <- rawSql
         "SELECT saved_at, period_start, period_end, content FROM advice_history WHERE substr(saved_at, 1, 10) = ? ORDER BY saved_at DESC LIMIT 1"
@@ -173,27 +179,21 @@ getAdviceForDate day = do
         , "content"      A..= content
         ]
 
--- | Metrics reported by get_sync_status, in the Python order.
-syncStatusMetrics :: [Text]
-syncStatusMetrics =
-    [ "sleep", "readiness", "activity", "stress", "spo2"
-    , "resilience", "cardiovascular_age", "vo2_max", "temperature", "heartrate"
-    ]
-
 -- get_sync_status
 getSyncStatus :: (MonadIO m) => ReaderT SqlBackend m A.Value
 getSyncStatus = do
     entries <- forM syncStatusMetrics $ \metric -> do
         logRow <- rawSql
             "SELECT last_synced_day, last_synced_at FROM sync_log WHERE metric = ?"
-            [toPersistValue metric]
-        cnt <- if metric == "heartrate"
-            then countRaw "SELECT COUNT(*) FROM heartrate" []
-            else countRaw "SELECT COUNT(*) FROM daily_metrics WHERE metric = ?"
-                          [toPersistValue metric]
+            [toPersistValue (metricName metric)]
+        cnt <- case metric of
+            HeartrateSeries -> countRaw "SELECT COUNT(*) FROM heartrate" []
+            Daily daily ->
+                countRaw "SELECT COUNT(*) FROM daily_metrics WHERE metric = ?"
+                         [toPersistValue (dailyMetricName daily)]
         let (lastDay, lastAt) = maybe (Nothing, Nothing)
                 (\(Single ld, Single la) -> (ld, la)) (headMay logRow)
-        return (metric, A.object
+        return (metricName metric, A.object
             [ "last_day"       A..= (lastDay :: Maybe Text)
             , "last_synced_at" A..= (lastAt :: Maybe Text)
             , "rows"           A..= (cnt :: Int)

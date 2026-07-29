@@ -11,13 +11,11 @@ module Handler.Advice where
 import Import
 import qualified Data.Aeson          as A
 import qualified Data.Aeson.KeyMap   as KM
-import qualified Data.Text           as T
 import Database.Persist.Sql (ConnectionPool, runSqlPool)
 import Control.Concurrent  (forkIO)
-import Data.Char           (isDigit)
 import Network.HTTP.Types (status202, status400, status404, status502)
 
-import DateText        (todayUtc)
+import DateText        (DayText, parseDayText, todayUtc)
 import Json            (jsonLookup)
 import qualified Db
 import qualified Advice
@@ -46,7 +44,8 @@ postAdviceR = do
     -- Fork the worker; it saves to advice_history on success via runDB.
     pool <- appConnPool <$> getYesod
     liftIO $ void $ forkIO $
-        Advice.runAdviceJob (appAdviceJobs app) jid prompt (saveAdviceIO pool)
+        Advice.runAdviceJob (appPlainLogger app) (appAdviceJobs app) jid prompt
+            (saveAdviceIO pool)
 
     sendStatusJSON status202 (A.object ["job_id" A..= jid, "status" A..= ("queued" :: Text)])
 
@@ -82,10 +81,12 @@ adviceHistoryList = do
 
 -- GET /api/advice/history/<date>
 getAdviceEntryR :: Text -> Handler Value
-getAdviceEntryR day = do
+getAdviceEntryR raw = do
     requireAuth
-    unless (isIsoDate day) $
-        sendStatusJSON status400 (A.object ["error" A..= ("Invalid date format" :: Text)])
+    day <- maybe (sendStatusJSON status400
+                    (A.object ["error" A..= ("Invalid date format" :: Text)]))
+                 return
+                 (parseDayText raw)
     mentry <- runDB $ Db.getAdviceForDate day
     case mentry of
         Nothing -> sendStatusJSON status404
@@ -104,14 +105,7 @@ nonEmptyArr :: A.Value -> Bool
 nonEmptyArr (A.Array a) = not (null a)
 nonEmptyArr _           = False
 
--- | Match YYYY-MM-DD exactly (app.py's re.fullmatch).
-isIsoDate :: Text -> Bool
-isIsoDate t = case T.splitOn "-" t of
-    [y, m, d] -> T.length y == 4 && T.length m == 2 && T.length d == 2
-                 && all (T.all isDigit) [y, m, d]
-    _ -> False
-
 -- | Save advice to advice_history, running in the connection pool.
-saveAdviceIO :: ConnectionPool -> Text -> Text -> Text -> IO ()
+saveAdviceIO :: ConnectionPool -> DayText -> DayText -> Text -> IO ()
 saveAdviceIO pool start end content =
     runSqlPool (Db.saveAdvice start end content) pool

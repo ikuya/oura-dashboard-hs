@@ -24,12 +24,12 @@ login = do
 -- | A stub Oura client returning fixed sleep records; used by the sync test.
 syncStubClient :: OuraClient
 syncStubClient = OuraClient
-    { getDailySleep = \_ _ -> return
+    { getDailySleep = \_ -> return
         [ A.object ["day" .= ("2024-01-10" :: Text), "score" .= (80 :: Int)] ]
     , getDailyReadiness = e, getDailyActivity = e, getDailyStress = e
     , getDailySpo2 = e, getDailyResilience = e, getDailyCardiovascularAge = e
     , getVO2Max = e, getHeartrate = e }
-  where e _ _ = return []
+  where e _ = return []
 
 spec :: Spec
 spec = do
