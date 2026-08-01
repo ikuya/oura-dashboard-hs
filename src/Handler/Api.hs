@@ -3,7 +3,6 @@
 {-# LANGUAGE TemplateHaskell   #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies      #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | JSON API handlers ported from app.py (auth, metrics, heartrate, sync).
 -- Advice handlers live in Handler.Advice (Phase 5).
@@ -54,7 +53,7 @@ postLoginR = do
     stored <- appPassword . appSettings <$> getYesod
     when (null stored) $
         sendStatusJSON status500 (A.object ["error" A..= ("APP_PASSWORD not configured" :: Text)])
-    body <- (requireCheckJsonBody :: Handler Value) `parseBodyOr` A.object []
+    body <- jsonBodyOr (A.object [])
     let pw = case body of
             A.Object o -> case KM.lookup "password" o of
                 Just (A.String s) -> s
@@ -114,7 +113,7 @@ getSyncStatusR = do
 postSyncR :: Handler Value
 postSyncR = do
     requireAuth
-    body <- (requireCheckJsonBody :: Handler Value) `parseBodyOr` A.object []
+    body <- jsonBodyOr (A.object [])
     let lookupStr k = case body of
             A.Object o -> case KM.lookup (K.fromText k) o of
                 Just (A.String s) -> Just s
@@ -149,7 +148,19 @@ syncResultToJson r = A.object
         [ (K.fromText m, A.toJSON e) | (m, e) <- M.toList (Sync.syncErrors r) ])
     ]
 
--- | Run a handler that may fail JSON parsing, falling back to a default
--- (mirrors Python's @request.get_json(silent=True) or {}@).
-parseBodyOr :: Handler a -> a -> Handler a
-parseBodyOr action def = action `catch` (\(_ :: SomeException) -> return def)
+-- | Parse the JSON request body, falling back to a default when it is absent,
+-- malformed, or not @application/json@ (mirrors Python's
+-- @request.get_json(silent=True) or {}@).
+--
+-- 'requireCheckJsonBody' reports those cases by calling 'invalidArgs', which
+-- throws Yesod's short-circuit exception; catching that to build a fallback
+-- also swallows genuine body-read failures. 'parseCheckJsonBody' returns
+-- 'A.Error' instead, so no exception handling is needed.
+jsonBodyOr :: FromJSON a => a -> Handler a
+jsonBodyOr def = do
+    r <- parseCheckJsonBody
+    case r of
+        A.Success v -> return v
+        A.Error msg -> do
+            $logDebug ("ignoring unparseable JSON body: " <> pack msg)
+            return def

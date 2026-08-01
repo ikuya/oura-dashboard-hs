@@ -46,6 +46,28 @@ spec = do
                 addRequestHeader ("Content-Type", "application/json")
             statusIs 401
 
+        it "login with malformed JSON body falls back to empty password" $ do
+            request $ do
+                setMethod "POST"
+                setUrl LoginR
+                setRequestBody "{ not json"
+                addRequestHeader ("Content-Type", "application/json")
+            statusIs 401
+
+        it "login with no body and no content-type falls back to empty password" $ do
+            request $ setMethod "POST" >> setUrl LoginR
+            statusIs 401
+
+        it "login with correct password but non-JSON content-type is rejected" $ do
+            request $ do
+                setMethod "POST"
+                setUrl LoginR
+                setRequestBody "{\"password\":\"test-password\"}"
+                addRequestHeader ("Content-Type", "text/plain")
+            statusIs 401
+            get MetricsR
+            statusIs 401
+
         it "logout then protected endpoint returns 401" $ do
             login
             request $ setMethod "POST" >> setUrl LogoutR
@@ -119,6 +141,22 @@ spec = do
                 setUrl SyncR
                 setRequestBody "{\"start\":\"2024-01-01\",\"end\":\"2024-01-31\",\"metrics\":[\"sleep\"]}"
                 addRequestHeader ("Content-Type", "application/json")
+            statusIs 202
+            bodyContains "synced"
+
+        it "sync with malformed JSON body uses defaults and returns 202" $ do
+            login
+            request $ do
+                setMethod "POST"
+                setUrl SyncR
+                setRequestBody "{ not json"
+                addRequestHeader ("Content-Type", "application/json")
+            statusIs 202
+            bodyContains "synced"
+
+        it "sync with no body uses defaults and returns 202" $ do
+            login
+            request $ setMethod "POST" >> setUrl SyncR
             statusIs 202
             bodyContains "synced"
 
