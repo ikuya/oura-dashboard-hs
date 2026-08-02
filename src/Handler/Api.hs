@@ -10,41 +10,28 @@ module Handler.Api where
 
 import Import
 import qualified Data.Aeson as A
-import qualified Data.Aeson.Key as K
-import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
-import Data.Time.Clock  (addUTCTime)
 import Network.HTTP.Types (status202, status400, status500)
 
+import DateText (DateRange (..), DayText (..), addDaysT, todayUtc)
+import Json (jsonArray, jsonText, jsonLookup)
+import Metric (Metric (..), dailyMetricName, dashboardMetrics,
+               metricName, parseDailyMetric)
 import qualified Db
 import qualified Sync
 import Oura (realClient)
 
--- | The daily metrics served by /api/metrics (app.py DAILY_METRICS).
-dailyMetrics :: [Text]
-dailyMetrics =
-    [ "sleep", "readiness", "activity", "stress", "spo2"
-    , "resilience", "cardiovascular_age", "temperature" ]
-
--- | Current UTC date as YYYY-MM-DD.
-todayStr :: Handler Text
-todayStr = pack . formatTime defaultTimeLocale "%Y-%m-%d" <$> liftIO getCurrentTime
-
-nDaysAgoStr :: Integer -> Handler Text
-nDaysAgoStr n = do
-    now <- liftIO getCurrentTime
-    let d = addUTCTime (fromInteger (negate n) * 86400) now
-    return $ pack (formatTime defaultTimeLocale "%Y-%m-%d" d)
-
 -- | Parse start/end query params, defaulting end=today, start=30 days ago.
-parseRange :: Handler (Text, Text)
+parseRange :: Handler DateRange
 parseRange = do
-    end   <- getParamDefault "end" =<< todayStr
-    start <- getParamDefault "start" =<< nDaysAgoStr 30
-    return (start, end)
+    today <- todayUtc
+    end   <- paramOr "end" today
+    start <- paramOr "start" (addDaysT (-30) today)
+    return (DateRange start end)
   where
-    getParamDefault name def = fromMaybe def <$> lookupGetParam name
+    paramOr name fallback =
+        maybe fallback DayText <$> lookupGetParam name
 
 -- Auth -------------------------------------------------------------------
 
@@ -53,13 +40,8 @@ postLoginR = do
     stored <- appPassword . appSettings <$> getYesod
     when (null stored) $
         sendStatusJSON status500 (A.object ["error" A..= ("APP_PASSWORD not configured" :: Text)])
-    body <- jsonBodyOr (A.object [])
-    let pw = case body of
-            A.Object o -> case KM.lookup "password" o of
-                Just (A.String s) -> s
-                _                 -> ""
-            _ -> ""
-    ok <- checkPassword pw
+    body <- jsonBodyOrEmpty
+    ok <- checkPassword (fromMaybe "" (jsonText =<< jsonLookup "password" body))
     if ok
         then do
             setSession sessionAuthKey "1"
@@ -76,21 +58,27 @@ postLogoutR = do
 getMetricsR :: Handler Value
 getMetricsR = do
     requireAuth
-    (start, end) <- parseRange
-    requested <- fromMaybe (intercalate "," dailyMetrics) <$> lookupGetParam "metric"
-    let metrics = [ m | m <- map T.strip (T.splitOn "," requested), not (null m) ]
-    pairs <- runDB $ forM (filter (`elem` dailyMetrics) metrics) $ \m -> do
-        rows <- Db.getDailyMetrics m start end
-        return (m, A.toJSON rows)
-    returnJson $ A.Object (KM.fromList [ (K.fromText m, v) | (m, v) <- pairs ])
+    range <- parseRange
+    requested <- lookupGetParam "metric"
+    let names = maybe [] (filter (not . null) . map T.strip . T.splitOn ",") requested
+        metrics = case requested of
+            Nothing -> dashboardMetrics
+            Just _  -> [ m | Just m <- map parseDailyMetric names
+                           , m `elem` dashboardMetrics ]
+    byMetric <- runDB $ M.fromList <$>
+        forM metrics (\m ->
+            (,) (dailyMetricName m) <$> Db.getDailyMetrics m range)
+    returnJson byMetric
 
 getMetricR :: Text -> Handler Value
-getMetricR metric = do
+getMetricR name = do
     requireAuth
-    when (metric `notElem` dailyMetrics) $
-        sendStatusJSON status400 (A.object ["error" A..= ("Unknown metric: " <> metric)])
-    (start, end) <- parseRange
-    rows <- runDB $ Db.getDailyMetrics metric start end
+    metric <- case parseDailyMetric name of
+        Just m | m `elem` dashboardMetrics -> return m
+        _ -> sendStatusJSON status400
+                (A.object ["error" A..= ("Unknown metric: " <> name)])
+    range <- parseRange
+    rows <- runDB $ Db.getDailyMetrics metric range
     returnJson rows
 
 -- Heartrate --------------------------------------------------------------
@@ -98,8 +86,8 @@ getMetricR metric = do
 getHeartrateR :: Handler Value
 getHeartrateR = do
     requireAuth
-    (start, end) <- parseRange
-    rows <- runDB $ Db.getHeartrate start end
+    range <- parseRange
+    rows <- runDB $ Db.getHeartrate range
     returnJson rows
 
 -- Sync -------------------------------------------------------------------
@@ -113,20 +101,13 @@ getSyncStatusR = do
 postSyncR :: Handler Value
 postSyncR = do
     requireAuth
-    body <- jsonBodyOr (A.object [])
-    let lookupStr k = case body of
-            A.Object o -> case KM.lookup (K.fromText k) o of
-                Just (A.String s) -> Just s
-                _                 -> Nothing
-            _ -> Nothing
-        requestedStart = lookupStr "start"
-        requestedMetrics = case body of
-            A.Object o -> case KM.lookup "metrics" o of
-                Just (A.Array a) -> Just [ s | A.String s <- toList a ]
-                _                -> Nothing
-            _ -> Nothing
-    today <- todayStr
-    let requestedEnd = fromMaybe today (lookupStr "end")
+    body <- jsonBodyOrEmpty
+    let field k = DayText <$> (jsonText =<< jsonLookup k body)
+        requestedStart = field "start"
+        requestedMetrics = mapMaybe parseMetricName
+                               <$> (jsonArray =<< jsonLookup "metrics" body)
+    today <- todayUtc
+    let requestedEnd = fromMaybe today (field "end")
 
     app <- getYesod
     client <- case appOuraClientOverride app of
@@ -135,32 +116,35 @@ postSyncR = do
             let token = appOuraToken (appSettings app)
             when (null token) $
                 sendStatusJSON status500 (A.object ["error" A..= ("OURA_TOKEN not set" :: Text)])
-            return (realClient token)
+            return (realClient (appPlainLogger app) token)
     result <- runDB $ Sync.runSync today client requestedStart (Just requestedEnd) requestedMetrics 0
     sendStatusJSON status202 (syncResultToJson result)
 
 -- | Convert SyncResult to the app.py {"synced": {...}, "errors": {...}} shape.
 syncResultToJson :: Sync.SyncResult -> Value
 syncResultToJson r = A.object
-    [ "synced" A..= A.Object (KM.fromList
-        [ (K.fromText m, A.toJSON c) | (m, c) <- M.toList (Sync.syncedCounts r) ])
-    , "errors" A..= A.Object (KM.fromList
-        [ (K.fromText m, A.toJSON e) | (m, e) <- M.toList (Sync.syncErrors r) ])
+    [ "synced" A..= M.mapKeys metricName (Sync.syncedCounts r)
+    , "errors" A..= M.mapKeys metricName (Sync.syncErrors r)
     ]
 
--- | Parse the JSON request body, falling back to a default when it is absent,
--- malformed, or not @application/json@ (mirrors Python's
--- @request.get_json(silent=True) or {}@).
+-- | A metric name from the request body. Heartrate is a sync target but not
+-- a daily metric, so it needs its own case.
+parseMetricName :: Value -> Maybe Metric
+parseMetricName v = do
+    name <- jsonText v
+    if name == metricName HeartrateSeries
+        then Just HeartrateSeries
+        else Daily <$> parseDailyMetric name
+
+-- | The request body decoded as JSON, or an empty object when it is missing,
+-- not JSON, or malformed (Python's @request.get_json(silent=True) or {}@).
 --
--- 'requireCheckJsonBody' reports those cases by calling 'invalidArgs', which
--- throws Yesod's short-circuit exception; catching that to build a fallback
--- also swallows genuine body-read failures. 'parseCheckJsonBody' returns
--- 'A.Error' instead, so no exception handling is needed.
-jsonBodyOr :: FromJSON a => a -> Handler a
-jsonBodyOr def = do
-    r <- parseCheckJsonBody
-    case r of
-        A.Success v -> return v
-        A.Error msg -> do
-            $logDebug ("ignoring unparseable JSON body: " <> pack msg)
-            return def
+-- 'parseCheckJsonBody' reports those failures in its result, so "silent" stays
+-- scoped to a parse failure. The @catch \@SomeException@ this replaces also
+-- swallowed unrelated exceptions, including async ones.
+jsonBodyOrEmpty :: Handler Value
+jsonBodyOrEmpty = do
+    result <- parseCheckJsonBody
+    return $ case result of
+        A.Success v -> v
+        A.Error _   -> A.object []

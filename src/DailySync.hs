@@ -15,13 +15,14 @@ import ClassyPrelude
 import Control.Monad.Logger        (LogLevel (..), LoggingT, defaultLogStr,
                                     logError, logInfo, runLoggingT)
 import Database.Persist.Sqlite     (createSqlitePool, runSqlPool, runMigrationSilent, sqlDatabase, sqlPoolSize)
-import Data.Time.LocalTime        (utcToZonedTime, hoursToTimeZone)
+import Data.Time.LocalTime        (hoursToTimeZone)
 import qualified Data.Map.Strict  as M
 import System.Exit                (exitWith, ExitCode (..))
 import System.Log.FastLogger      (LoggerSet, flushLogStr, pushLogStr, toLogStr)
 
 import Application (getAppSettings)
-import Logging     (newAppLoggerSet, newTimestamp, setGlobalLoggerSet)
+import DateText    (DayText, todayIn)
+import Logging     (AppLog, newAppLog, newAppLoggerSet, newTimestamp)
 import Settings    (AppSettings, appDatabaseConf, appLogFile, appOuraToken,
                     appShouldLogAll)
 import Model       (migrateAll)
@@ -31,19 +32,16 @@ import Sync        (runSync, SyncResult (..))
 backfillDays :: Int
 backfillDays = 7
 
-todayJst :: IO Text
-todayJst = do
-    now <- getCurrentTime
-    let jst = utcToZonedTime (hoursToTimeZone 9) now
-    return $ pack (formatTime defaultTimeLocale "%Y-%m-%d" jst)
+todayJst :: IO DayText
+todayJst = todayIn (hoursToTimeZone 9)
 
 dailySyncMain :: IO ()
 dailySyncMain = do
     settings <- getAppSettings
     loggerSet' <- newAppLoggerSet (appLogFile settings)
     -- The Oura client logs from plain IO through this same set.
-    setGlobalLoggerSet loggerSet'
-    code <- runLog (appShouldLogAll settings) loggerSet' (dailySync settings)
+    appLog <- newAppLog loggerSet'
+    code <- runLog (appShouldLogAll settings) loggerSet' (dailySync settings appLog)
     flushLogStr loggerSet'
     exitWith code
 
@@ -59,8 +57,8 @@ runLog logAll ls act = do
             ts <- getTime
             pushLogStr ls (toLogStr ts <> " " <> defaultLogStr loc src level msg)
 
-dailySync :: AppSettings -> LoggingT IO ExitCode
-dailySync settings = do
+dailySync :: AppSettings -> AppLog -> LoggingT IO ExitCode
+dailySync settings appLog = do
     let token = appOuraToken settings
     if null token
         then do
@@ -70,7 +68,7 @@ dailySync settings = do
             $logInfo $ "starting daily sync (backfill_days="
                      <> tshow backfillDays <> ")"
             today <- liftIO todayJst
-            let client = realClient token
+            let client = realClient appLog token
             pool <- createSqlitePool
                 (sqlDatabase (appDatabaseConf settings))
                 (sqlPoolSize (appDatabaseConf settings))

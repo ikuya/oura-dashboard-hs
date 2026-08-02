@@ -14,7 +14,6 @@ module Advice
     , statusText
     , AdviceJobs
     , adviceSystemPrompt
-    , dailyMetricsForAdvice
     , extractKeyFields
     , buildHealthPayload
     , buildAdvicePrompt
@@ -31,7 +30,6 @@ import qualified Data.Aeson.Key      as K
 import qualified Data.Aeson.KeyMap   as KM
 import qualified Data.Map.Strict     as M
 import qualified Data.Text.Lazy      as TL
-import Data.Time.Calendar         (addDays)
 import Database.Persist.Sql       (SqlBackend)
 import System.Exit                (ExitCode (..))
 import System.Process             (readCreateProcessWithExitCode, proc)
@@ -41,8 +39,12 @@ import qualified Data.UUID.V4      as UUID
 import Control.Monad.Logger       (LogLevel (..))
 import Data.Time.Clock            (diffUTCTime)
 
+import DateText                   (DateRange (..), DayText (..), addDaysT)
 import Db
-import Logging                    (logGlobal)
+import Json                       (jsonText, jsonLookup)
+import Metric                     (DailyMetric (..), dailyMetricName,
+                                   dashboardMetrics)
+import Logging                    (AppLog (..))
 
 -- | Job lifecycle states.
 data JobStatus = Queued | Running | Completed | Failed
@@ -64,12 +66,6 @@ data AdviceJob = AdviceJob
     }
 
 type AdviceJobs = TVar (M.Map Text AdviceJob)
-
--- | The metrics included in the advice payload (app.py DAILY_METRICS).
-dailyMetricsForAdvice :: [Text]
-dailyMetricsForAdvice =
-    [ "sleep", "readiness", "activity", "stress", "spo2"
-    , "resilience", "cardiovascular_age", "temperature" ]
 
 adviceSystemPrompt :: Text
 adviceSystemPrompt = intercalate "\n"
@@ -106,36 +102,33 @@ appendSystemPrompt =
     "You are a health data analysis assistant. Output only the analysis report. No preamble, no self-explanation, no meta-commentary about the task."
 
 -- | Extract the key fields from a metric row for the advice payload.
-extractKeyFields :: Text -> A.Value -> A.Value
+extractKeyFields :: DailyMetric -> A.Value -> A.Value
 extractKeyFields metric row =
-    let g k = fromMaybe A.Null (lookupJson k row)
+    let g k = fromMaybe A.Null (jsonLookup k row)
         base = [("day", g "day"), ("score", g "score")]
         extra = case metric of
-            "sleep"     -> [("contributors", g "contributors")]
-            "readiness" -> [("contributors", g "contributors")]
-            "activity"  -> [("active_calories", g "active_calories"), ("steps", g "steps")]
-            "stress"    -> [("stress_high", g "stress_high"), ("recovery_high", g "recovery_high")]
-            "spo2"      -> [("spo2_percentage", g "spo2_percentage")]
-            "temperature" ->
+            Sleep       -> [("contributors", g "contributors")]
+            Readiness   -> [("contributors", g "contributors")]
+            Activity    -> [("active_calories", g "active_calories"), ("steps", g "steps")]
+            Stress      -> [("stress_high", g "stress_high"), ("recovery_high", g "recovery_high")]
+            Spo2        -> [("spo2_percentage", g "spo2_percentage")]
+            Temperature ->
                 [ ("temperature_deviation", g "temperature_deviation")
                 , ("temperature_trend_deviation", g "temperature_trend_deviation") ]
-            "resilience" -> [("level", g "level")]
-            "cardiovascular_age" -> [("vascular_age", g "vascular_age")]
-            _ -> []
+            Resilience        -> [("level", g "level")]
+            CardiovascularAge -> [("vascular_age", g "vascular_age")]
+            VO2Max            -> []
     in A.Object (KM.fromList (base ++ extra))
 
-lookupJson :: Text -> A.Value -> Maybe A.Value
-lookupJson k (A.Object o) = KM.lookup (K.fromText k) o
-lookupJson _ _            = Nothing
-
 -- | Build the 14-day health payload (period + per-metric key fields).
-buildHealthPayload :: (MonadIO m) => Text -> Int -> ReaderT SqlBackend m A.Value
+buildHealthPayload :: (MonadIO m) => DayText -> Int -> ReaderT SqlBackend m A.Value
 buildHealthPayload today days = do
-    let start = tshowDay (addDays (negate (fromIntegral days - 1)) (parseDayT today))
-    bulk <- getDailyMetricsBulk dailyMetricsForAdvice start today
+    let start = addDaysT (negate (fromIntegral days - 1)) today
+    bulk <- getDailyMetricsBulk dashboardMetrics (DateRange start today)
     let metricsObj = KM.fromList
-            [ (K.fromText m, A.toJSON (map (extractKeyFields m) (M.findWithDefault [] m bulk)))
-            | m <- dailyMetricsForAdvice ]
+            [ ( K.fromText (dailyMetricName m)
+              , A.toJSON (map (extractKeyFields m) (M.findWithDefault [] m bulk)) )
+            | m <- dashboardMetrics ]
         period = A.object ["start" A..= start, "end" A..= today, "days" A..= days]
     return $ A.object ["period" A..= period, "metrics" A..= A.Object metricsObj]
 
@@ -169,14 +162,15 @@ setJob jobs jid f = atomically $ modifyTVar' jobs (M.adjust f jid)
 -- | Worker: run the claude CLI, update job state, and save advice on success.
 -- @saveOnSuccess@ persists the advice to advice_history (period start/end).
 runAdviceJob
-    :: AdviceJobs
+    :: AppLog
+    -> AdviceJobs
     -> Text                                   -- ^ job id
     -> Text                                   -- ^ prompt
-    -> (Text -> Text -> Text -> IO ())        -- ^ save action: start end content
+    -> (DayText -> DayText -> Text -> IO ())  -- ^ save action: start end content
     -> IO ()
-runAdviceJob jobs jid prompt saveAdvice' = do
+runAdviceJob appLog jobs jid prompt saveAdvice' = do
     setJob jobs jid (\j -> j { jobStatus = Running })
-    logGlobal LevelInfo ("advice job " <> jid <> " started")
+    writeLog appLog LevelInfo ("advice job " <> jid <> " started")
     started <- getCurrentTime
     let cp = proc "claude"
             [ "-p", unpack prompt, "--max-turns", "1", "--model", "opus"
@@ -193,7 +187,7 @@ runAdviceJob jobs jid prompt saveAdvice' = do
             let adviceOut = pack out
             setJob jobs jid (\j -> j { jobStatus = Completed, jobAdvice = adviceOut, jobError = Nothing })
             elapsed <- elapsedSince started
-            logGlobal LevelInfo
+            writeLog appLog LevelInfo
                 ("advice job " <> jid <> " completed in " <> elapsed)
             -- Save to advice_history using the job's period.
             mjob <- getJob jobs jid
@@ -205,22 +199,11 @@ runAdviceJob jobs jid prompt saveAdvice' = do
     -- invisible outside the browser session that polled for it.
     fail' msg = do
         setJob jobs jid (\j -> j { jobStatus = Failed, jobError = Just msg })
-        logGlobal LevelError ("advice job " <> jid <> " failed: " <> msg)
+        writeLog appLog LevelError ("advice job " <> jid <> " failed: " <> msg)
 
     elapsedSince t0 = do
         now <- getCurrentTime
         return (tshow (diffUTCTime now t0))
-    periodBounds (A.Object o) = do
-        A.String s <- KM.lookup "start" o
-        A.String e <- KM.lookup "end" o
-        return (s, e)
-    periodBounds _ = Nothing
-
--- Date helpers -----------------------------------------------------------
-
-parseDayT :: Text -> Day
-parseDayT t = case parseTimeM True defaultTimeLocale "%Y-%m-%d" (unpack t) of
-    Just d -> d; Nothing -> error ("bad date: " <> unpack t)
-
-tshowDay :: Day -> Text
-tshowDay = pack . formatTime defaultTimeLocale "%Y-%m-%d"
+    periodBounds v = (,) <$> field "start" <*> field "end"
+      where
+        field k = DayText <$> (jsonText =<< jsonLookup k v)

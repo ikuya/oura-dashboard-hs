@@ -24,6 +24,7 @@ import qualified Data.Aeson as A
 import Network.HTTP.Types   (status401)
 import Oura                 (OuraClient)
 import Advice               (AdviceJobs)
+import Logging              (AppLog)
 import qualified Yesod.Core.Unsafe as Unsafe
 
 -- | The foundation datatype for your application. This can be a good place to
@@ -47,6 +48,9 @@ data App = App
     , appAdviceJobs  :: AdviceJobs
       -- ^ In-process advice job state (non-persistent, like Python's
       -- Lock-guarded _advice_jobs dict).
+    , appPlainLogger :: AppLog
+      -- ^ Log destination for the code that runs outside 'MonadLogger': the
+      -- Oura client's IO fetches and the forked advice worker.
     }
 
 -- This is where we define all of the routes in our application. For a full

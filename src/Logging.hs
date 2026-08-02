@@ -13,9 +13,9 @@
 -- wai-extra's request logger both require a 'LoggerSet'.
 module Logging
     ( newAppLoggerSet
-    , setGlobalLoggerSet
-    , logGlobal
     , newTimestamp
+    , AppLog (..)
+    , newAppLog
     ) where
 
 import ClassyPrelude
@@ -23,7 +23,6 @@ import Control.Monad.Logger (LogLevel (..))
 import System.Directory     (createDirectoryIfMissing)
 import System.FilePath      (takeDirectory)
 import System.IO            (hPutStrLn)
-import System.IO.Unsafe     (unsafePerformIO)
 import System.Log.FastLogger
     ( FormattedTime, LoggerSet, defaultBufSize, newFileLoggerSet
     , newStdoutLoggerSet, newTimeCache, pushLogStrLn, toLogStr )
@@ -51,39 +50,30 @@ newAppLoggerSet mpath = case mpath of
   where
     stdoutSet = newStdoutLoggerSet defaultBufSize
 
--- Global logger set ------------------------------------------------------
+-- Logging from plain IO ---------------------------------------------------
 
--- | Some code that needs to log runs in plain 'IO' with no 'MonadLogger' in
--- scope: the 'Oura.OuraClient' record is nine @IO@ functions, and advice jobs
--- are forked with 'forkIO'. Those paths write here instead. Unset until an
--- entry point installs a logger set, in which case messages are dropped.
-globalLoggerSet :: IORef (Maybe LoggerSet)
-globalLoggerSet = unsafePerformIO (newIORef Nothing)
-{-# NOINLINE globalLoggerSet #-}
+-- | How a plain-'IO' code path writes a log line.
+--
+-- Some code that needs to log has no 'MonadLogger' in scope: the
+-- 'Oura.OuraClient' record is nine @IO@ functions, and advice jobs are forked
+-- with 'forkIO'. Those paths take this handle from whoever built them, so the
+-- log destination stays an ordinary value rather than process-wide state.
+newtype AppLog = AppLog { writeLog :: LogLevel -> Text -> IO () }
 
--- | Shared time cache for 'logGlobal'.
-globalTimestamp :: IO FormattedTime
-globalTimestamp = unsafePerformIO newTimestamp
-{-# NOINLINE globalTimestamp #-}
-
-setGlobalLoggerSet :: LoggerSet -> IO ()
-setGlobalLoggerSet = writeIORef globalLoggerSet . Just
+-- | Log to a logger set, with the same timestamp-first layout as the
+-- monad-logger paths so all lines in a file read alike. Holds its own time
+-- cache, so build one per entry point rather than one per message.
+newAppLog :: LoggerSet -> IO AppLog
+newAppLog ls = do
+    getTime <- newTimestamp
+    return $ AppLog $ \level msg -> do
+        ts <- getTime
+        pushLogStrLn ls $
+            toLogStr ts <> toLogStr (" [" <> levelName level <> "] " <> msg)
 
 -- | A cached local-time formatter. The cache reformats at most once a second.
 newTimestamp :: IO (IO FormattedTime)
 newTimestamp = newTimeCache "%Y-%m-%d %H:%M:%S"
-
--- | Log a message from an 'IO' context, with the same timestamp-first layout
--- as the monad-logger paths so all lines in a file read alike.
-logGlobal :: LogLevel -> Text -> IO ()
-logGlobal level msg = do
-    mls <- readIORef globalLoggerSet
-    case mls of
-        Nothing -> return ()
-        Just ls -> do
-            ts <- globalTimestamp
-            pushLogStrLn ls $
-                toLogStr ts <> toLogStr (" [" <> levelName level <> "] " <> msg)
 
 levelName :: LogLevel -> Text
 levelName LevelDebug     = "Debug"
