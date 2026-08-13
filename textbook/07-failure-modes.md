@@ -1,8 +1,10 @@
-# 第 4 章 失敗の表現を選ぶ — Maybe / Either / 例外
+# 第 7 章 失敗の表現を選ぶ
 
-Haskell には失敗を表す手段が複数あります。初心者は「`Maybe` を使えばいい」と思いがちですが、実務では **状況ごとに使い分ける** ことが求められます。この章では、このプロジェクトの実際の選択とその理由、そして 1 度失敗して直した例を見ます。
+> **この章で復習する文法**: `Maybe` / `Either`、`Exception` インスタンスと `throwIO` / `try`、`error`、`ScopedTypeVariables` による例外型の指定、戻り値 `m a` が意味するもの、aeson の `Result`
 
-## 4.1 4 つの選択肢と使い分けの原則
+Haskell には失敗を表す手段が複数あります。初学者は「`Maybe` を使えばいい」と思いがちですが、実務では **状況ごとに使い分ける**ことが求められます。この章では、このプロジェクトの実際の選択とその理由、そして一度失敗して直した例を見ます。
+
+## 7.1 4 つの選択肢
 
 | 手段 | 意味 | 使うべき場面 |
 |---|---|---|
@@ -13,7 +15,7 @@ Haskell には失敗を表す手段が複数あります。初心者は「`Maybe
 
 原則は **「呼び出し側がその情報を使うか」** です。理由を使わないなら `Maybe`、使うなら `Either`、途中の層を素通りさせたいなら例外。
 
-## 4.2 `Maybe` — 理由が要らない失敗
+## 7.2 `Maybe` — 理由が要らない失敗
 
 ```haskell
 -- src/Json.hs:23
@@ -29,7 +31,7 @@ jsonLookup _ _          = Nothing
 parseDailyMetric :: Text -> Maybe DailyMetric
 ```
 
-同様に、未知のメトリック名は「知らない名前だった」以上の情報がありません。呼び出し側でメッセージを作ります。
+未知のメトリック名も「知らない名前だった」以上の情報がありません。メッセージは呼び出し側で作ります。
 
 ```haskell
 -- src/Handler/Api.hs:76
@@ -39,11 +41,9 @@ metric <- case parseDailyMetric name of
             (A.object ["error" A..= ("Unknown metric: " <> name)])
 ```
 
-ここで `Maybe` の値が消費され、HTTP のエラー応答という「その層にふさわしい形」に変換されています。**失敗の表現は層をまたぐたびに翻訳される** ——これが実務コードの基本形です。
+ここで `Maybe` が消費され、HTTP のエラー応答という「その層にふさわしい形」に変換されています。**失敗の表現は層をまたぐたびに翻訳される**——これが実務コードの基本形です。
 
-### `Maybe` を連鎖させる
-
-`Maybe` の真価は合成にあります。
+### `Maybe` を合成する
 
 ```haskell
 -- src/Advice.hs:207
@@ -52,11 +52,11 @@ periodBounds v = (,) <$> field "start" <*> field "end"
     field k = DayText <$> (jsonText =<< jsonLookup k v)
 ```
 
-「`start` と `end` の両方が取れたらペアにする、片方でも欠けたら `Nothing`」を 1 行で書いています。`<$>` と `<*>`（Applicative スタイル）は、**複数の `Maybe` を集めて 1 つの値を作る**ときの定型です。
+「`start` と `end` の両方が取れたらペアにする、片方でも欠けたら `Nothing`」を 1 行で書いています。第 2 章で見た Applicative スタイルです。
 
-同じことを `do` で書いてもよく、実際 `extractScore` の `Resilience` 節ではそうしています（第 3 章）。使い分けの目安は、**後の計算が前の結果に依存するなら `do`、独立して集めるだけなら `<$>`/`<*>`** です。
+使い分けの目安は、**後の計算が前の結果に依存するなら `do`、独立して集めるだけなら `<$>`/`<*>`**。前者の例が第 6 章で見た `extractScore` の `Resilience` 節です。
 
-## 4.3 例外 — 遠くまで飛ばす失敗
+## 7.3 例外 — 遠くまで飛ばす失敗
 
 HTTP クライアントの失敗は例外にしています。
 
@@ -70,18 +70,18 @@ data OuraError = OuraError
 instance Exception OuraError
 ```
 
-なぜ `Either OuraError [Value]` ではないのか。`OuraClient` の型を見ると分かります。
+なぜ `IO (Either OuraError [Value])` ではないのか。`OuraClient` の型を見ると分かります。
 
 ```haskell
 -- src/Oura.hs:41
 data OuraClient = OuraClient
     { getDailySleep :: DateRange -> IO [Value]
-    , ...
+    , ...   -- 全部で 9 フィールド
 ```
 
-もし `IO (Either OuraError [Value])` にすると、9 個のフィールドすべてに `Either` が付き、ページネーションのループ（`getPaged` の再帰）でも毎回 `case` で開く必要が出ます。さらに `Sync` 側の呼び出しも全部 `Either` の面倒を見ることになります。
+`Either` を入れると、9 個のフィールドすべてに `Either` が付き、ページネーションの再帰でも毎回 `case` で開く必要が出ます。さらに `Sync` 側の呼び出しも全部 `Either` の面倒を見ることになります。
 
-`IO` の中では、**「失敗したら以降を実行しない」を例外に任せた方が全体の記述が減ります**。その代わり、**捕まえる場所を 1 箇所に決める**のが条件です。
+**`IO` の中では、「失敗したら以降を実行しない」を例外に任せた方が全体の記述が減ります。** その代わり、**捕まえる場所を 1 箇所に決める**のが条件です。
 
 ```haskell
 -- src/Sync.hs:298
@@ -90,8 +90,7 @@ data OuraClient = OuraClient
 -- without this an errored metric leaves no trace in the log.
 tryOura
     :: (MonadUnliftIO m, MonadLogger m)
-    => Metric
-    -> ReaderT SqlBackend m a
+    => Metric -> ReaderT SqlBackend m a
     -> ReaderT SqlBackend m (Either Text a)
 tryOura metric action = do
     r <- try action
@@ -102,7 +101,7 @@ tryOura metric action = do
         Right a                -> return (Right a)
 ```
 
-この関数が **例外と `Either` の境界** です。ここから内側は例外で飛び、ここから外側は `Either Text a` として扱われます。境界が 1 つに固定されているので、「どこで例外が消えるか」を読み手が探さずに済みます。
+この関数が **例外と `Either` の境界**です。ここから内側は例外で飛び、ここから外側は `Either Text a` として扱われます。境界が 1 つに固定されているので、「どこで例外が消えるか」を読み手が探さずに済みます。
 
 そして境界を通過した後は、値として集計されます。
 
@@ -125,7 +124,7 @@ return $ if M.null (syncErrors result)
          else ExitFailure 1
 ```
 
-### `try` の重要な性質
+### 文法メモ: `try` の型と、捕まえる型の決まり方
 
 ClassyPrelude が re-export する `try` は `UnliftIO.Exception` のものです。
 
@@ -133,11 +132,22 @@ ClassyPrelude が re-export する `try` は `UnliftIO.Exception` のもので�
 try :: (MonadUnliftIO m, Exception e) => m a -> m (Either e a)
 ```
 
-標準の `Control.Exception.try` との違いは、**非同期例外を捕まえない**ことです。タイムアウトやスレッドのキャンセルは通り抜けます。これは実務上とても重要な性質で、「`try` したせいでタイムアウトが効かなくなる」事故を防ぎます。
+標準の `Control.Exception.try` との違いは、**非同期例外を捕まえない**ことです。タイムアウトやスレッドのキャンセルは通り抜けます。「`try` したせいでタイムアウトが効かなくなる」事故を防ぐ、実務上とても重要な性質です。
 
-`tryOura` の `try` は型注釈がありませんが、直後の `case` で `OuraError` のパターンにマッチさせているため、GHC が `e ~ OuraError` と推論します。**捕まえる例外の型を絞る**ことも重要です。`SomeException` で捕まえると、次節の事故が起きます。
+`tryOura` の `try` には型注釈がありませんが、直後の `case` で `OuraError` のパターンにマッチさせているため、GHC が `e ~ OuraError` と推論します。パターンから決まらない場合は明示が要ります。
 
-## 4.4 実例: `SomeException` を握り潰していたバグ
+```haskell
+-- src/Advice.hs:180
+Left (_ :: IOException) -> fail' "claude コマンドが見つかりません。..."
+
+-- src/Logging.hs:44
+Left (e :: SomeException) -> do
+    hPutStrLn stderr $ "WARNING: cannot write log file " ++ path ...
+```
+
+パターン内で型を書くには `{-# LANGUAGE ScopedTypeVariables #-}` が必要です。**この拡張がファイル先頭にあれば、例外を型で絞って捕まえている合図**だと読めます。
+
+## 7.4 実例: `SomeException` を握り潰していたバグ
 
 移植当初、リクエストボディの JSON パースはこう書かれていました。
 
@@ -149,12 +159,12 @@ parseBodyOr :: Handler a -> a -> Handler a
 parseBodyOr action def = action `catch` (\(_ :: SomeException) -> return def)
 ```
 
-Python の `request.get_json(silent=True) or {}` を素直に移したものです。動きます。テストも通ります。しかし **`SomeException` はすべての例外を含みます**。
+Python の `request.get_json(silent=True) or {}` を素直に移したものです。動きますし、テストも通ります。しかし **`SomeException` はすべての例外を含みます**。
 
 - ボディが壊れている → 捕まえたい（意図どおり）
 - DB のコネクションが切れた → 捕まえたくない
 - タイムアウトでスレッドが中断された → **絶対に捕まえてはいけない**
-- Yesod が内部制御に使う例外（`sendStatusJSON` の脱出など） → 捕まえたら動作が壊れる
+- Yesod が内部制御に使う例外（`sendStatusJSON` の脱出など）→ 捕まえたら動作が壊れる
 
 修正後はこうなりました。
 
@@ -174,15 +184,17 @@ jsonBodyOrEmpty = do
         A.Error _   -> A.object []
 ```
 
-`parseCheckJsonBody :: (MonadHandler m, FromJSON a) => m (Result a)` は、失敗を例外ではなく **戻り値の `Result`** で返します。つまり例外処理そのものが不要になりました。
+`parseCheckJsonBody :: (MonadHandler m, FromJSON a) => m (Result a)` は、失敗を例外ではなく**戻り値の `Result`** で返します。つまり例外処理そのものが不要になりました。
+
+> `Result a = Error String | Success a` は `Either String a` と同型です。aeson が独自の型を持つのは歴史的経緯で、扱いは同じく `case` で開けます。
 
 **教訓は 3 つ。**
 
-1. `catch`/`try` で `SomeException` を指定するのは、ほぼ常に誤り。捕まえたい例外の型を書く。
+1. `catch` / `try` で `SomeException` を指定するのは、ほぼ常に誤り。捕まえたい例外の型を書く。
 2. 例外を捕まえる前に、**そもそも例外を投げない API がないか**を探す。あればそちらが正しい。
-3. 他言語からの移植では「例外の粒度」が一致しないことが多い。Python の `except Exception` と Haskell の `SomeException` は、含まれる範囲が違う（Haskell の方が広く、非同期例外まで含む）。
+3. 他言語からの移植では「例外の粒度」が一致しない。Python の `except Exception` と Haskell の `SomeException` は含む範囲が違う（Haskell の方が広く、非同期例外まで含む）。
 
-この修正のテストも一緒に入っています。「壊れた JSON」「ボディ無し」「Content-Type が違う」の 3 ケースで、変更前と同じ 401 が返ることを固定しました。
+この修正では、振る舞いが変わらないことをテストで固定しています。
 
 ```haskell
 -- test/AppSpec.hs:51
@@ -197,9 +209,9 @@ it "login with malformed JSON returns 401" $ do
     statusIs 401
 ```
 
-**振る舞いを変えないリファクタリングでは、変えないことをテストで固定してから直す。** これは Haskell に限らない話ですが、型が変わらないリファクタリング（例外処理の書き換え）ではコンパイラが助けてくれないので、特に重要です。
+**振る舞いを変えないリファクタリングでは、変えないことをテストで固定してから直す。** 例外処理の書き換えは型が変わらないため、コンパイラが助けてくれません。
 
-## 4.5 `error` を使ってよい場所・いけない場所
+## 7.5 `error` を使ってよい場所・いけない場所
 
 `DateText.hs` には対照的な 2 つの関数があります。
 
@@ -208,10 +220,6 @@ it "login with malformed JSON returns 401" $ do
 -- | Accept a @YYYY-MM-DD@ string from outside the app (a URL segment, a query
 -- parameter). Shape-only, matching the @re.fullmatch@ the Python app used.
 parseDayText :: Text -> Maybe DayText
-parseDayText t = case T.splitOn "-" t of
-    [y, m, d] | T.length y == 4 && T.length m == 2 && T.length d == 2
-              , all (T.all isDigit) [y, m, d] -> Just (DayText t)
-    _ -> Nothing
 ```
 
 ```haskell
@@ -239,37 +247,28 @@ let field k = DayText <$> (jsonText =<< jsonLookup k body)
 
 リクエストボディの `"end"` を、`parseDayText` の検証を通さずに `DayText` へ包んでいます。この値は心拍同期の経路で `addDaysT` → `parseDay` に届くため、`{"end": "1999-13-45"}`（形は正しいが暦として無効）を送ると `error` で 500 になります。
 
-つまり **「内部用だから `error` でよい」は、内部に入る入口をすべて検証している場合にのみ成立する** ということです。`DayText` のコンストラクタが公開されている（第 2 章 2.6）ため、検証を飛ばして作れてしまうのが根本原因です。これは第 13 章の演習 1 で直します。
+つまり **「内部用だから `error` でよい」は、内部に入る入口をすべて検証している場合にのみ成立する**ということです。第 16 章で直し方を検討します。
 
 ### `error` を書くときのチェックリスト
 
-- [ ] この値の出どころを全部列挙できるか
-- [ ] そのすべてで検証済みだと言えるか
-- [ ] 言えないなら `Maybe`/`Either` にするか、入口に検証を足す
-- [ ] `error` のメッセージに、原因を特定できる情報（実際の値）が入っているか
+- この値の出どころを全部列挙できるか
+- そのすべてで検証済みだと言えるか
+- 言えないなら `Maybe`/`Either` にするか、入口に検証を足す
+- `error` のメッセージに、原因を特定できる情報（実際の値）が入っているか
 
-`parseDay` は最後の項目は満たしています（`"invalid date: " <> unpack t`）。落ちたときにログを見れば原因が分かる、というのは最低限の礼儀です。
+`parseDay` は最後の項目を満たしています（`"invalid date: " <> unpack t`）。落ちたときにログを見れば原因が分かる、というのは最低限の礼儀です。
 
-## 4.6 Yesod ハンドラでの脱出
+## 7.6 戻り値 `m a` は「戻ってこない」の合図
 
-Handler 層では、失敗はしばしば「途中で応答を返して終わる」形になります。
-
-```haskell
--- src/Foundation.hs:179
-requireAuth :: Handler ()
-requireAuth = do
-    authed <- isAuthenticated
-    unless authed $
-        sendStatusJSON status401 (A.object ["error" A..= ("Unauthorized" :: Text)])
-```
-
-`sendStatusJSON` の型は次のとおりです。
+Handler 層では、失敗はしばしば「途中で応答を返して終わる」形になります。`sendStatusJSON` の型を見てください。
 
 ```
 sendStatusJSON :: (MonadHandler m, ToJSON c) => Status -> c -> m a
 ```
 
-戻り値が `m a`（任意の型）であることに注目してください。「何にでもなれる」型は、**この関数から戻ってこない**ことを意味します（内部で制御用の例外を投げて Yesod のフレームワークが捕まえる）。だから次のような書き方ができます。
+戻り値が `m a`——**呼び出し側が要求する任意の型になれる**、ということは、**この関数から値が返ってこない**ことを意味します（内部で制御用の例外を投げ、Yesod が捕まえます）。任意の型の値を作る方法は、実際には存在しないからです。
+
+だから次のような書き方ができます。
 
 ```haskell
 -- src/Handler/Advice.hs:86
@@ -280,9 +279,9 @@ day <- maybe (sendStatusJSON status400
 -- ここに来た時点で day :: DayText は検証済み
 ```
 
-`maybe` の「失敗時」の分岐が `Handler DayText` として型が合うのは、`sendStatusJSON` が `m a` を返すからです。**返り値の型が `m a` の関数を見たら「脱出する」と読む** ——これは Haskell のコードを読むときの重要なサインです。
+`maybe` の「失敗時」の枝が `Handler DayText` として型が合うのは、`sendStatusJSON` が `m a` を返すからです。**返り値の型が `m a` の関数を見たら「脱出する」と読む**——Haskell のコードを読むときの重要なサインです。
 
-同じ形は `postLoginR` の設定不備チェックにも使われています。
+同じ形が設定不備のチェックにも使われています。
 
 ```haskell
 -- src/Handler/Api.hs:41
@@ -290,7 +289,7 @@ when (null stored) $
     sendStatusJSON status500 (A.object ["error" A..= ("APP_PASSWORD not configured" :: Text)])
 ```
 
-## 4.7 起動時失敗は潔く落とす
+## 7.7 起動時失敗は潔く落とす
 
 設定不備は、リクエストを待たずに起動時に落とすのが正解です。
 
@@ -301,7 +300,7 @@ when (null $ appSecretKey appSettings) $
     error "SECRET_KEY environment variable is not set"
 ```
 
-ここでは `error` が適切です。「セッション鍵が無い状態で起動したサーバー」は存在してはいけないので、`Maybe App` を返して呼び出し側に判断させる意味がありません。**フェイルファスト**（早く、大きく失敗する）は、静かな誤動作よりずっと良い。
+ここでは `error` が適切です。「セッション鍵が無い状態で起動したサーバー」は存在してはいけないので、`Maybe App` を返して呼び出し側に判断させる意味がありません。**フェイルファスト**は静かな誤動作よりずっと良い。
 
 一方、ログファイルが開けない場合は落としません。
 
@@ -312,9 +311,9 @@ when (null $ appSecretKey appSettings) $
 -- than failing startup.
 ```
 
-「ログが書けないこと」はアプリの本質的機能を止める理由になりません。**何が致命的で何がそうでないかは、機能の重要度で決める**という判断が、コメント付きで残されています。
+**何が致命的で何がそうでないかは、機能の重要度で決める**という判断が、コメント付きで残されています。
 
-## 4.8 この章のまとめ
+## 7.8 この章のまとめ
 
 | 状況 | このプロジェクトの選択 |
 |---|---|
@@ -329,15 +328,21 @@ when (null $ appSecretKey appSettings) $
 | 起動時の設定不備 | `error` で即死 |
 | ログファイルが開けない | stderr に警告して stdout へフォールバック |
 
-- 失敗表現は層をまたぐたびに翻訳する。境界を 1 箇所に固定する（`tryOura`）。
-- `SomeException` を捕まえない。捕まえる型を書く。
+- 失敗表現は層をまたぐたびに翻訳する。例外と値の境界を 1 箇所に固定する（`tryOura`）。
+- `SomeException` を捕まえない。捕まえる型を書く（`ScopedTypeVariables`）。
 - 例外を捕まえる前に、例外を投げない API を探す。
-- `error` は「入口を全部検証している」と言い切れるときだけ。
+- `error` は「入口を全部検証している」と言い切れるときだけ。メッセージに実際の値を入れる。
+- 戻り値が `m a` の関数は「戻ってこない」。
 
-## 演習
+### 文法チェックリスト
 
-1. `Oura.httpGet`（`src/Oura.hs:95`）は `try (httpJSON req)` で `HttpException` を捕まえ、`OuraError` に変換しています。なぜ `HttpException` をそのまま上に投げないのでしょうか。`Sync.tryOura` の実装を踏まえて説明してください。
-
-2. `getPaged`（`src/Oura.hs:81`）で HTTP 失敗が起きたとき、それまでに取得したページ（`acc`）はどうなりますか。この挙動は望ましいですか。望ましくないとしたら、どう直しますか。
-
-3. `runAdviceJob`（`src/Advice.hs:171`）は `try` で `IOException` だけを捕まえています。`claude` コマンドが存在しない場合以外に、この `try` が捕まえる可能性のある状況を挙げてください。捕まえ損ねる失敗はありますか。
+| 構文 | 意味 | 本章での実例 |
+|---|---|---|
+| `Maybe a` / `Either e a` | 失敗を値で表す | `jsonLookup`, `tryOura` |
+| `instance Exception E` | 例外として投げられる型にする | `OuraError` |
+| `throwIO e` | 例外を投げる | `Oura.httpGet` |
+| `try action` | 例外を `Either e a` として受ける（非同期例外は通す） | `tryOura` |
+| `Left (e :: E) ->` | 捕まえる例外の型を指定（`ScopedTypeVariables`） | `Advice.hs`, `Logging.hs` |
+| `error msg` | プログラマのバグを表す停止 | `parseDay`, `makeFoundation` |
+| `f :: ... -> m a` | この関数からは戻ってこない | `sendStatusJSON` |
+| `Result a` | aeson のパース結果（`Either` と同型） | `jsonBodyOrEmpty` |
