@@ -1,8 +1,34 @@
 # 第 15 章 ClassyPrelude・言語拡張・ビルド運用
 
+← [第14章 テストの書き方](14-testing.md) | [目次](README.md) | [第16章 設計を評価する](16-design-review.md) →
+
 > **この章で復習する文法**: 代替 Prelude と `NoImplicitPrelude`、このプロジェクトで使う言語拡張の全一覧、`-Wall` の主な警告、GHCi での型確認、ビルドエラーの読み方
 
 Haskell のソースは、たいてい `{-# LANGUAGE ... #-}` の列から始まります。第 1 章で「拡張の一覧はモジュールの要約」と述べました。この章では実際の使用状況を整理し、日々のビルド作業の実務も扱います。
+
+## 目次
+
+- [15.1 拡張の使用頻度](#151-拡張の使用頻度)
+- [15.2 拡張ごとの効用と落とし穴](#152-拡張ごとの効用と落とし穴)
+  - [`OverloadedStrings`](#overloadedstrings)
+  - [`LambdaCase`](#lambdacase)
+  - [`ScopedTypeVariables`](#scopedtypevariables)
+  - [`FlexibleContexts`](#flexiblecontexts)
+  - [`DerivingStrategies` + `GeneralizedNewtypeDeriving`](#derivingstrategies-generalizednewtypederiving)
+  - [`TemplateHaskell` — 忘れると謎のエラー](#templatehaskell-忘れると謎のエラー)
+  - [使わなくなった拡張が残ることもある](#使わなくなった拡張が残ることもある)
+- [15.3 ClassyPrelude の実像](#153-classyprelude-の実像)
+  - [何が変わるか](#何が変わるか)
+  - [落とし穴](#落とし穴)
+  - [ClassyPrelude を使うべきか](#classyprelude-を使うべきか)
+- [15.4 ビルドとエラー読解の実務](#154-ビルドとエラー読解の実務)
+  - [ビルドエラーの抽出](#ビルドエラーの抽出)
+  - [型を先に確認する](#型を先に確認する)
+  - [ビルドが 2 回連続で失敗したら](#ビルドが-2-回連続で失敗したら)
+  - [`-Wall` を有効にする](#-wall-を有効にする)
+  - [開発時のビルドを速くする](#開発時のビルドを速くする)
+- [15.5 この章のまとめ](#155-この章のまとめ)
+  - [文法チェックリスト](#文法チェックリスト)
 
 ## 15.1 拡張の使用頻度
 
@@ -309,3 +335,7 @@ when:
 | `-Wall` / `-Wincomplete-patterns` | 警告の有効化 | `package.yaml` |
 | `:t` / `:i` | GHCi での型・インスタンス確認 | 日常運用 |
 | `-ddump-splices` | TH 生成コードの確認 | 第 12 章 |
+
+---
+
+← [第14章 テストの書き方](14-testing.md) | [目次](README.md) | [第16章 設計を評価する](16-design-review.md) →

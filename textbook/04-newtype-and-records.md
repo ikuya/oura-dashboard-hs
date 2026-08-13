@@ -1,8 +1,26 @@
 # 第 4 章 newtype とレコード
 
+← [第3章 代数的データ型と網羅性](03-adt-and-exhaustiveness.md) | [目次](README.md) | [第5章 型クラスと制約](05-typeclasses.md) →
+
 > **この章で復習する文法**: `newtype` と `data` と `type` の違い、レコード構文とフィールドアクセサ、レコード更新構文、`deriving stock` / `newtype` / `anyclass`（`DerivingStrategies`）、`RecordWildCards`
 
 第 3 章では「種類が違うもの」を型で分けました。この章では、**同じ `Text` なのに意味が違うもの**を分ける方法と、複数の値をまとめる方法を扱います。
+
+## 目次
+
+- [4.1 `newtype` — コスト 0 で別の型を作る](#41-newtype-コスト-0-で別の型を作る)
+  - [文法メモ: `newtype` / `data` / `type` の違い](#文法メモ-newtype-data-type-の違い)
+- [4.2 `deriving` 戦略を明示する](#42-deriving-戦略を明示する)
+  - [`Ord` に意味を持たせる](#ord-に意味を持たせる)
+  - [`IsString` を導出する意味](#isstring-を導出する意味)
+- [4.3 レコード — 名前でフィールドを区別する](#43-レコード-名前でフィールドを区別する)
+  - [文法メモ: レコード構文](#文法メモ-レコード構文)
+  - [フィールドが関数でもよい](#フィールドが関数でもよい)
+- [4.4 レコード更新構文](#44-レコード更新構文)
+- [4.5 大きなレコードと `RecordWildCards`](#45-大きなレコードと-recordwildcards)
+- [4.6 型で守れないところを見極める](#46-型で守れないところを見極める)
+- [4.7 この章のまとめ](#47-この章のまとめ)
+  - [文法チェックリスト](#文法チェックリスト)
 
 ## 4.1 `newtype` — コスト 0 で別の型を作る
 
@@ -263,3 +281,7 @@ let mkFoundation appConnPool = App {..}
 | `deriving stock (..)` | 組み込み導出 | `Show` |
 | `deriving newtype (..)` | 中身の型のインスタンスを流用 | `Eq, Ord, ToJSON, PersistField` |
 | `R {..}` | `RecordWildCards` による構築 | `AppSettings {..}`, `App {..}` |
+
+---
+
+← [第3章 代数的データ型と網羅性](03-adt-and-exhaustiveness.md) | [目次](README.md) | [第5章 型クラスと制約](05-typeclasses.md) →

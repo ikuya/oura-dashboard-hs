@@ -1,10 +1,28 @@
 # 第 3 章 代数的データ型と網羅性
 
+← [第2章 関数・パターン・演算子](02-functions-and-patterns.md) | [目次](README.md) | [第4章 newtype とレコード](04-newtype-and-records.md) →
+
 > **この章で復習する文法**: `data` 宣言、直和と直積、`deriving`、`Enum` / `Bounded` と `[minBound .. maxBound]`、`case` と `\case`（`LambdaCase`）、網羅性検査と `-Wall`
 
 Haskell を実務で使う最大の見返りは「型でバグを防ぐ」ことです。ただし、型を書けば自動的にそうなるわけではありません。`Text` と `Text` を取り違えるバグは、型があっても止まりません。
 
 この章では、このプロジェクトが実際に行った **stringly-typed（何でも文字列）からの脱却**を追いかけながら、`data` 宣言の文法と網羅性検査を復習します。題材はコミット `1835052` "Replace stringly-typed metrics, dates and the global logger with types" です。
+
+## 目次
+
+- [3.1 Before: 文字列で持ち回る](#31-before-文字列で持ち回る)
+- [3.2 `data` 宣言の文法](#32-data-宣言の文法)
+  - [直和（enum 型）](#直和enum-型)
+  - [直和 + 直積（コンストラクタが引数を取る）](#直和-直積コンストラクタが引数を取る)
+  - [`deriving` — インスタンスの自動導出](#deriving-インスタンスの自動導出)
+- [3.3 文字列表現は 1 箇所に置く](#33-文字列表現は-1-箇所に置く)
+  - [文法メモ: `\case`（LambdaCase）](#文法メモ-caselambdacase)
+- [3.4 網羅性検査を「効かせる」](#34-網羅性検査を効かせる)
+- [3.5 `Enum` / `Bounded` で「全部」を得る](#35-enum-bounded-で全部を得る)
+  - [逆変換は `Maybe` を返す](#逆変換は-maybe-を返す)
+- [3.6 型で分けた効果](#36-型で分けた効果)
+- [3.7 この章のまとめ](#37-この章のまとめ)
+  - [文法チェックリスト](#文法チェックリスト)
 
 ## 3.1 Before: 文字列で持ち回る
 
@@ -276,3 +294,7 @@ cnt <- case metric of
 | `\case` | 引数名を書かない `case`（`LambdaCase`） | `dailyMetricName` |
 | `-Wincomplete-patterns` | 分岐漏れの警告（`-Wall` に含まれる） | `package.yaml` |
 | `[minBound .. maxBound]` | `Enum`+`Bounded` による全列挙 | `allDailyMetrics` |
+
+---
+
+← [第2章 関数・パターン・演算子](02-functions-and-patterns.md) | [目次](README.md) | [第4章 newtype とレコード](04-newtype-and-records.md) →

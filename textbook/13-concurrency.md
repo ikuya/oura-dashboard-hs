@@ -1,5 +1,7 @@
 # 第 13 章 並行処理とリソース管理
 
+← [第12章 persistent と Yesod](12-persistent-and-yesod.md) | [目次](README.md) | [第14章 テストの書き方](14-testing.md) →
+
 > **この章で復習する文法**: `TVar` と STM（`atomically` / `modifyTVar'` / `readTVarIO`）、`forkIO`、`timeout`、`try` と `timeout` の入れ子で生まれる型、`ScopedTypeVariables`、`proc` による子プロセス起動、状態を表す ADT
 
 アドバイス生成は `claude` CLI を呼ぶため、数十秒かかります。HTTP リクエストの中で待つわけにはいかないので、非同期ジョブにしています。
@@ -10,6 +12,24 @@ GET  /api/advice/{id} → まだなら 202、完了なら 200、失敗なら 502
 ```
 
 この仕組みを題材に、Haskell の並行処理の実務的な使い方を見ます。
+
+## 目次
+
+- [13.1 共有状態は `TVar` に置く](#131-共有状態は-tvar-に置く)
+  - [文法メモ: STM の型](#文法メモ-stm-の型)
+  - [なぜ `MVar` や `IORef` でなく `TVar` か](#なぜ-mvar-や-ioref-でなく-tvar-か)
+  - [`modifyTVar'` の `'`](#modifytvar-の)
+- [13.2 ワーカーを起動する](#132-ワーカーを起動する)
+- [13.3 タイムアウトと子プロセス](#133-タイムアウトと子プロセス)
+  - [`proc` を使う（シェルを経由しない）](#proc-を使うシェルを経由しない)
+  - [失敗の種類が型に現れる](#失敗の種類が型に現れる)
+  - [どちらの `timeout` か](#どちらの-timeout-か)
+  - [単位を間違えない](#単位を間違えない)
+- [13.4 状態遷移を型で表す](#134-状態遷移を型で表す)
+  - [型で防げていないこと](#型で防げていないこと)
+- [13.5 増え続けるコレクション](#135-増え続けるコレクション)
+- [13.6 この章のまとめ](#136-この章のまとめ)
+  - [文法チェックリスト](#文法チェックリスト)
 
 ## 13.1 共有状態は `TVar` に置く
 
@@ -312,3 +332,7 @@ setJob jobs jid f = atomically $ modifyTVar' jobs (M.adjust f jid)
 | `(_ :: IOException)` | 捕まえる例外型の指定 | `ScopedTypeVariables` |
 | `proc "cmd" [args]` | シェルを経由しない子プロセス起動 | `claude` CLI |
 | `data S = A \| B Text` | 状態ごとに付随データを持つ ADT | `JobState`（改善案） |
+
+---
+
+← [第12章 persistent と Yesod](12-persistent-and-yesod.md) | [目次](README.md) | [第14章 テストの書き方](14-testing.md) →

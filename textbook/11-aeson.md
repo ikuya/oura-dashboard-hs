@@ -1,10 +1,33 @@
 # 第 11 章 aeson で緩い JSON を扱う
 
+← [第10章 関数のレコードによる依存性注入](10-dependency-injection.md) | [目次](README.md) | [第12章 persistent と Yesod](12-persistent-and-yesod.md) →
+
 > **この章で復習する文法**: `Value` の 6 コンストラクタ、`A.object` と `.=`、`FromJSON` の手書き（`withObject`、`.:`、`.:?`、`.!=`）、`RecordWildCards` による構築、`CPP`、型注釈が必要になる場面
 
 Haskell の JSON といえば「型を定義して `deriving (FromJSON, ToJSON)`」が定番です。しかしこのプロジェクトはほとんどそれをしません。**外部 API のペイロードを、型付けせずに `Value` のまま扱っています。**
 
 これは怠慢でしょうか。それとも合理的な判断でしょうか。理由を検討しながら、aeson の実践的な使い方を見ていきます。
+
+## 目次
+
+- [11.1 なぜ型を作らないのか](#111-なぜ型を作らないのか)
+- [11.2 `Value` の形とアクセサの集約](#112-value-の形とアクセサの集約)
+  - [文法メモ: `Value` の 6 コンストラクタ](#文法メモ-value-の-6-コンストラクタ)
+  - [aeson 2.x の `Key` / `KeyMap`](#aeson-2x-の-key-keymap)
+  - [数値は `Scientific`](#数値は-scientific)
+- [11.3 JSON を組み立てる](#113-json-を組み立てる)
+  - [文法メモ: `object` と `.=`](#文法メモ-object-と)
+  - [`Map` はそのまま JSON になる](#map-はそのまま-json-になる)
+  - [既存 JSON にフィールドを足す](#既存-json-にフィールドを足す)
+- [11.4 人間・LLM に見せる JSON](#114-人間llm-に見せる-json)
+- [11.5 自分の構造には型を書く — `FromJSON` の手書き](#115-自分の構造には型を書く-fromjson-の手書き)
+  - [文法メモ: パーサの演算子](#文法メモ-パーサの演算子)
+  - [文法メモ: `CPP`](#文法メモ-cpp)
+  - [`RecordWildCards` による組み立て](#recordwildcards-による組み立て)
+  - [「空文字列は未設定」の扱い](#空文字列は未設定の扱い)
+- [11.6 パース結果を値で受け取る](#116-パース結果を値で受け取る)
+- [11.7 この章のまとめ](#117-この章のまとめ)
+  - [文法チェックリスト](#文法チェックリスト)
 
 ## 11.1 なぜ型を作らないのか
 
@@ -332,3 +355,7 @@ jsonBodyOrEmpty = do
 | `R {..}` | `RecordWildCards` による構築 | `AppSettings {..}` |
 | `#ifdef` / `#else` / `#endif` | `CPP` による分岐 | `defaultDev` |
 | `(x :: Text)` | 型が決まらないときの注釈 | `rawSql` の結果 |
+
+---
+
+← [第10章 関数のレコードによる依存性注入](10-dependency-injection.md) | [目次](README.md) | [第12章 persistent と Yesod](12-persistent-and-yesod.md) →

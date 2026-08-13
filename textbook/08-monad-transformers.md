@@ -1,8 +1,26 @@
 # 第 8 章 モナド変換子と制約の実務
 
+← [第7章 失敗の表現を選ぶ](07-failure-modes.md) | [目次](README.md) | [第9章 再帰・畳み込み・遅延評価](09-recursion-folds-laziness.md) →
+
 > **この章で復習する文法**: モナド変換子（`ReaderT`）の型の読み方、`lift` と `liftIO`、`MonadIO` / `MonadUnliftIO` / `MonadLogger` 制約、`type` シノニムと `RankNTypes`（`forall`）、`$logInfo` のような TH スプライス
 
 入門書の「モナド」は `IO` と `Maybe` で終わりますが、実務のコードには `ReaderT SqlBackend m`、`MonadUnliftIO m`、`LoggingT IO`、`Handler` といった型が並びます。この章では、それらを**「能力の宣言」として読む**方法を身につけます。
+
+## 目次
+
+- [8.1 制約は「この関数に必要な能力」の一覧](#81-制約はこの関数に必要な能力の一覧)
+  - [なぜ `IO` と直接書かないのか](#なぜ-io-と直接書かないのか)
+- [8.2 モナド変換子と `ReaderT SqlBackend m`](#82-モナド変換子と-readert-sqlbackend-m)
+  - [文法メモ: 変換子の型の形](#文法メモ-変換子の型の形)
+  - [走らせる 3 つの方法](#走らせる-3-つの方法)
+- [8.3 `liftIO` はいつ必要か](#83-liftio-はいつ必要か)
+- [8.4 `MonadUnliftIO` — 「IO に戻せる」能力](#84-monadunliftio-io-に戻せる能力)
+- [8.5 `MonadLogger` と、それが使えない場所](#85-monadlogger-とそれが使えない場所)
+- [8.6 型シノニムで長い型に名前を付ける](#86-型シノニムで長い型に名前を付ける)
+  - [文法メモ: `forall` と RankNTypes](#文法メモ-forall-と-rankntypes)
+- [8.7 Yesod の `Handler` は何者か](#87-yesod-の-handler-は何者か)
+- [8.8 この章のまとめ](#88-この章のまとめ)
+  - [文法チェックリスト](#文法チェックリスト)
 
 ## 8.1 制約は「この関数に必要な能力」の一覧
 
@@ -336,3 +354,7 @@ getHeartrateR = do
 | `$logInfo "..."` | TH スプライス（要 `TemplateHaskell`） | `Sync.hs` |
 | `type T a = forall m. C m => ...` | `RankNTypes` を使った型シノニム | `type DB a` |
 | `(m :: Type -> Type)` | カインド注釈 | `Foundation.hs:74` |
+
+---
+
+← [第7章 失敗の表現を選ぶ](07-failure-modes.md) | [目次](README.md) | [第9章 再帰・畳み込み・遅延評価](09-recursion-folds-laziness.md) →
