@@ -258,7 +258,9 @@ HTTP クライアントの実装（3 つの関数）が丸ごと `where` に隠�
 , getDailyReadiness = getDated "/v2/usercollection/daily_readiness"
 ```
 
-`getDated :: Text -> DateRange -> IO [Value]` に第 1 引数だけ与えた結果は `DateRange -> IO [Value]` という**関数**です。9 個のフィールドが、1 つの共通実装にパスだけ変えて束ねられています。継承もテンプレートメソッドも使っていません。
+`getDated :: Text -> DateRange -> IO [Value]` に第 1 引数だけ与えた結果は `DateRange -> IO [Value]` という**関数**です。`OuraClient` の 9 フィールドのうち 8 つ（`getDailySleep` 〜 `getVO2Max`）は、この `getDated` にパスだけ変えて束ねられています。継承もテンプレートメソッドも使っていません。
+
+残る 1 つ、`getHeartrate` だけは別実装です。`getDated` が組み立てる `start_date`/`end_date` パラメータではなく、`start_datetime`/`end_datetime`（`dateToDatetime` で変換）を使って `getPaged` を直接呼んでいます。心拍数だけ Oura API のエンドポイントがタイムスタンプ単位のクエリを要求するためで、9 フィールド全部が同じ関数の部分適用というわけではありません。
 
 ```haskell
 -- src/Metric.hs:83 — Daily を map に部分適用

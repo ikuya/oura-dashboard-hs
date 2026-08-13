@@ -96,7 +96,7 @@ when (metric == Readiness && not (null records)) $ do
     updateSyncLog (Daily Temperature) end
 ```
 
-- `forM_ :: (Foldable t, Monad m) => t a -> (a -> m b) -> m ()` — 各要素に効果を適用し、結果は捨てる
+- `forM_ :: (MonoFoldable mono, Applicative m) => mono -> (Element mono -> m ()) -> m ()` — 各要素に効果を適用し、結果は捨てる。base の `Data.Foldable.forM_ :: (Foldable t, Monad m) => t a -> (a -> m b) -> m ()` とは型が異なる点に注意（第 5 章で触れた `Foldable`/`MonoFoldable` の違いがここにも出てきます）。このプロジェクトは `ClassyPrelude` を import しているので、実際に使われているのは前者です
 - `when` / `unless` — 条件が真（偽）のときだけ実行する
 
 `_` 付きは「結果を集めない」版です（結果が欲しいなら `forM` / `mapM`）。**結果を使わないのに `forM` を使うと、不要なリストが作られます**（`-Wall` は教えてくれません）。

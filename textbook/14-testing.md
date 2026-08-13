@@ -4,14 +4,14 @@
 
 Haskell は「型が通れば動く」と言われますが、型が保証しないことは山ほどあります。SQL 文字列の中身、日付計算の境界、外部 API との契約、HTTP のステータスコード。**型で守れないものをテストで守る**のが実務です。
 
-このプロジェクトのテストは 4 ファイル・約 750 行。3 つの層に分かれています。
+このプロジェクトのテストは `*Spec.hs` が 5 ファイル・約 770 行（`test/Handler/` 以下の 2 ファイルを含む）。3 つの層に分かれています。
 
 | ファイル | 対象 | DB | HTTP |
 |---|---|---|---|
 | `test/SyncSpec.hs` | 同期ロジック | インメモリ | スタブ |
 | `test/DbSpec.hs` | SQL クエリ | インメモリ | なし |
 | `test/AppSpec.hs` | HTTP エンドポイント | ファイル（テスト用） | 実際に叩く |
-| `test/Handler/*Spec.hs` | 静的ページ | ファイル | 実際に叩く |
+| `test/Handler/CommonSpec.hs`, `test/Handler/HomeSpec.hs` | 静的ページ | ファイル | 実際に叩く |
 
 ## 14.1 テストの発見は自動
 
@@ -70,7 +70,7 @@ describe "extract_score" $ do
 ## 14.3 インメモリ SQLite で DB 層をテストする
 
 ```haskell
--- test/DbSpec.hs:26
+-- test/DbSpec.hs:24-30
 -- | Run a DB action against a fresh in-memory database with the schema
 -- migrated. Each call gets an isolated database (like the mem_conn fixture).
 -- Signature left to inference to avoid importing the ResourceT/NoLoggingT
@@ -83,7 +83,7 @@ runMem action = runSqlite ":memory:" $ do
 `runSqlite ":memory:"` で、**プロセス内に完結する一時 DB** を作ります。ファイルもサーバーも不要で、テストごとに完全に独立します。
 
 ```haskell
--- test/DbSpec.hs:39
+-- test/DbSpec.hs:40
 it "upserts and gets a daily metric" $ do
     rows <- runMem $ do
         upsertDailyMetric Sleep "2024-01-01" (Just 85)
@@ -161,7 +161,7 @@ forM_ (callsFor "heartrate" calls) $ \(DateRange s e) ->
 このプロジェクトで最も教育的なコメントがこれです。
 
 ```haskell
--- test/SyncSpec.hs:85
+-- test/SyncSpec.hs:84
 -- NOTE: The Python test_sync assertions for the following cases never
 -- actually ran: the conftest mem_conn fixture builds sync_log without
 -- last_synced_at, so update_sync_log raises before the assertion. These
@@ -247,12 +247,16 @@ database:
 ### DB の全消去
 
 ```haskell
--- test/TestImport.hs:60
+-- test/TestImport.hs:60-77
 wipeDB :: App -> IO ()
 wipeDB app = do
+    let logFunc = messageLoggerSource app (appLogger app)
+
     let dbName = sqlDatabase $ appDatabaseConf $ appSettings app
         connInfo = set fkEnabled False $ mkSqliteConnectionInfo dbName
+
     pool <- runLoggingT (createSqlitePoolFromInfo connInfo 1) logFunc
+
     flip runSqlPersistMPool pool $ do
         tables <- getTables
         sqlBackend <- ask

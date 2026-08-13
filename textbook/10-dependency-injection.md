@@ -67,7 +67,7 @@ realClient appLog token = OuraClient
 
 注目すべき点が 3 つあります。
 
-**(1) 部分適用でクライアントを組み立てている。** `getDated "/v2/usercollection/daily_sleep"` は、`getDated :: Text -> DateRange -> IO [Value]` に第 1 引数だけ与えた**関数**です。9 個のフィールドが、1 つの共通実装にパスだけ変えて束ねられています。継承もテンプレートメソッドも使っていません。
+**(1) 部分適用でクライアントを組み立てている。** `getDated "/v2/usercollection/daily_sleep"` は、`getDated :: Text -> DateRange -> IO [Value]` に第 1 引数だけ与えた**関数**です。9 フィールドのうち 8 つ（`getDailySleep` 〜 `getVO2Max`）はこの `getDated` にパスだけ変えて束ねられています。継承もテンプレートメソッドも使っていません。残る `getHeartrate` だけは上の抜粋にあるとおり別実装で、`start_date`/`end_date` ではなく `start_datetime`/`end_datetime` を要求する Oura API のエンドポイントに合わせて `getPaged` を直接呼んでいます。
 
 **(2) 設定（トークン、ログ出力先）はクロージャに閉じ込められている。** `realClient appLog token` を呼んだ時点で、返ってくる `OuraClient` はトークンを内部に保持しています。`where` 内の `httpGet` が引数リストに `token` を持たないのは、外側の引数を捕まえているからです。
 

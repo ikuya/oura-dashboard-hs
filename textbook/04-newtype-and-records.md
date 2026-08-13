@@ -191,7 +191,7 @@ let foundation = foundation0 { appOuraClientOverride = mclient }
 
 ## 4.5 大きなレコードと `RecordWildCards`
 
-フィールドが 20 個ある設定レコードを、逐一書くのは苦行です。
+フィールドが 19 個ある設定レコードを、逐一書くのは苦行です。
 
 ```haskell
 -- src/Settings.hs:29

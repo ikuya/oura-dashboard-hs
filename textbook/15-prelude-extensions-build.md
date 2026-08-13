@@ -6,7 +6,7 @@ Haskell のソースは、たいてい `{-# LANGUAGE ... #-}` の列から始ま
 
 ## 15.1 拡張の使用頻度
 
-`src/`、`test/`、`app/` の全 20 ファイルでの使用状況です。
+`src/`、`test/`、`app/` の全 30 ファイル（`src/` 20 + `test/` 7 + `app/` 3）での使用状況です。
 
 | 拡張 | 使用モジュール数 | 何のために |
 |---|---|---|
@@ -138,7 +138,7 @@ ClassyPrelude.null :: MonoFoldable mono => mono -> Bool
 -- src/Db.hs:91
 return $ unSingle <$> headMay rows
 
--- test/DbSpec.hs:44 — テストでは「空なら落ちてほしい」ので Ex 版
+-- test/DbSpec.hs:46 — テストでは「空なら落ちてほしい」ので Ex 版
 field "day" (headEx rows) `shouldBe` Just (A.String "2024-01-01")
 ```
 

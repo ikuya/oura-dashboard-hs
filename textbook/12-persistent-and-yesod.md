@@ -63,9 +63,15 @@ stack ghci oura-dashboard-hs:lib
 
 ### Haskell の型名と DB の名前の衝突
 
-生成される型 `DailyMetric` は、第 3 章で作ったドメイン型 `Metric.DailyMetric` と名前が衝突します。`Db.hs` は両方を import しているので、本来なら問題になるはずです。
+生成される型 `DailyMetric` は、第 3 章で作ったドメイン型 `Metric.DailyMetric` と名前が衝突します。ところが `Db.hs` は `Model`（生成型の宿るモジュール）を **import していません**。
 
-ところが `Db.hs` は、生成されたエンティティ型を**一切使っていません**。
+```haskell
+-- src/Db.hs:12-19（抜粋）
+import ClassyPrelude.Yesod
+...
+import DateText
+import Metric
+```
 
 ```haskell
 -- src/Db.hs:94
@@ -73,7 +79,19 @@ getDailyMetrics
     :: (MonadIO m) => DailyMetric -> DateRange -> ReaderT SqlBackend m [A.Value]
 ```
 
-ここでの `DailyMetric` は `Metric.hs` の方です。persistent 側のエンティティ型は使わず、raw SQL の結果を直接 `A.Value` にしています。だから衝突が実際には起きません。これは偶然ではなく、次節の設計判断の帰結です。
+ここでの `DailyMetric` は `Metric.hs` の方です。persistent 側のエンティティ型はスコープに入っておらず、raw SQL の結果を直接 `A.Value` にしています。だから `Db.hs` の中では衝突が起きようがありません。これは偶然ではなく、次節の設計判断（型安全クエリを使わない）の帰結です。
+
+実際に衝突が**起きうる**のは、両方の `DailyMetric` がスコープに入るモジュール、つまり `Handler/Api.hs` です。ここは `import Import`（`Model` の `DailyMetric` を再輸出）と `import Metric (...)` を両方行っていますが、後者の import リストから `DailyMetric` を明示的に外しています。
+
+```haskell
+-- src/Handler/Api.hs:11,19-20
+import Import                                    -- Model.DailyMetric を再輸出
+...
+import Metric (Metric (..), dailyMetricName, dashboardMetrics,
+               metricName, parseDailyMetric)     -- DailyMetric 自体は挙げていない
+```
+
+明示 import リストで名前を絞ることで、`DailyMetric` は `Model`（persistent エンティティ）側だけを指すようにしてあります。第 1 章で見た「明示 import で衝突を解く」判断が、ここでも使われています。
 
 ## 12.2 型安全クエリを使わない判断
 
@@ -151,7 +169,7 @@ return [ ... | (Single day, Single score, Single dj) <- rows ]
 **型注釈が必要になる場面が多い**のが raw SQL の面倒なところです。
 
 ```haskell
--- src/Db.hs:170 — where 節で型を明示している
+-- src/Db.hs:173-174 — where 節で型を明示している
 entryJson
     :: (Single Text, Single Text, Single Text, Single Text) -> A.Value
 entryJson (Single savedAt, Single ps, Single pe, Single content) = A.object [...]
@@ -333,7 +351,7 @@ bcrypt のハッシュ検証です。**平文パスワードは保存も比較�
 `makeFoundation`（`src/Application.hs:62`）は、実務でよくある「初期化の依存が循環する」問題を解いています。
 
 ```haskell
--- src/Application.hs:94
+-- src/Application.hs:95
 -- We need a log function to create a connection pool. We need a connection
 -- pool to create our foundation. And we need our foundation to get a
 -- logging function. To get out of this loop, we initially create a

@@ -46,7 +46,7 @@
 | [13](13-concurrency.md) | 並行処理とリソース管理 | `TVar`/STM、`forkIO`、`timeout`、`ScopedTypeVariables` | `Advice.hs` |
 | [14](14-testing.md) | テストの書き方 | hspec、型推論に任せる判断、スタブ | `test/*.hs` |
 | [15](15-prelude-extensions-build.md) | ClassyPrelude・拡張・ビルド運用 | 代替 Prelude、拡張一覧、`-Wall`、GHCi の使い方 | `package.yaml` 他 |
-| [16](16-design-review.md) | 設計を評価する | （文法の新出なし） | 既知の弱点 7 件の講評 |
+| [16](16-design-review.md) | 設計を評価する | （文法の新出なし） | 既知の弱点 9 件の講評 |
 
 順に読むのが基本です。文法の復習が主目的なら 01〜09、設計の検討が主目的なら 03、04、06、07、10、16 を拾い読みしてください。
 

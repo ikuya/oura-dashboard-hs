@@ -190,7 +190,7 @@ mergeRow day mscore o =
 
 `KM.insert` は上書きします。Python の `{**data, "day": ..., "score": ...}` と同じ「後勝ち」を再現しており、**コメントで対応関係を明記**しています。移植プロジェクトでは、こう書いておくと後から挙動を照合できます。
 
-ここで `A.toJSON day` が `DayText` を JSON にしています。第 4 章で `deriving newtype (ToJSON)` を選んだ効果です。もし stock で導出していたら `{"unDayText": "2024-01-01"}` という余計な入れ子になり、**API のバイト互換が壊れていました**。
+ここで `A.toJSON day` が `DayText` を JSON にしています。第 4 章で `deriving newtype (ToJSON)` を選んだ効果です。`ToJSON` は GHC の stock 導出（`Eq`/`Show`/`Generic` などの組み込み一覧）には含まれないクラスなので、もし代わりに `anyclass`（`DeriveAnyClass`、aeson の `Generic` ベースのデフォルト実装）で導出していたら `{"unDayText": "2024-01-01"}` という余計な入れ子になり、**API のバイト互換が壊れていました**。
 
 ## 11.4 人間・LLM に見せる JSON
 

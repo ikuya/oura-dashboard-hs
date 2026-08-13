@@ -284,7 +284,7 @@ let byMetric = M.fromListWith (flip (++))
 
 `flip (++)` によって挿入順（＝SQL の `ORDER BY metric, day`）が保たれます。正しい結果を出しますが、`old ++ new` は `old` を毎回辿るので、1 メトリックあたりの行数の二乗に比例します。14〜30 日分なら無害ですが、期間を延ばすと劣化します。
 
-**(3) テストスタブの記録**（`test/SyncSpec.hs:48` の `modifyIORef' ref (++ [(metric, range)])`）。テストコードなので実害はありませんが、同じ形です。
+**(3) テストスタブの記録**（`test/SyncSpec.hs:49` の `modifyIORef' ref (++ [(metric, range)])`）。テストコードなので実害はありませんが、同じ形です。
 
 ### 正しい書き方
 

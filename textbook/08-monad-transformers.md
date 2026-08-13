@@ -266,7 +266,7 @@ type DB a = forall (m :: Type -> Type).
 
 通常、シグネチャの型変数には暗黙の `forall` が付いています（`f :: a -> a` は `f :: forall a. a -> a`）。`RankNTypes` は、その `forall` を**型の内側**に書けるようにする拡張です。上の例では「シノニムを展開した先で `m` が全称量化される」ことを表しています。
 
-`(m :: Type -> Type)` は**カインド注釈**です。`m` が「型を取って型を返す」種類の型変数であることを明示しています（`ExplicitForAll` と `KindSignatures` が必要で、`Foundation.hs:7` で有効化されています）。
+`(m :: Type -> Type)` は**カインド注釈**です。`m` が「型を取って型を返す」種類の型変数であることを明示しています（`ExplicitForAll` と `KindSignatures` が必要です。`Foundation.hs:7` で有効化されているのは `ExplicitForAll` で、`KindSignatures` はその 2 行上の `TypeFamilies`（`Foundation.hs:5`）が暗黙に有効化します）。
 
 ```haskell
 -- test/TestImport.hs:83

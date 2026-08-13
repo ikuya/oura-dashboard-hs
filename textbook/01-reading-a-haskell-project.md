@@ -41,7 +41,7 @@ flowchart TB
         HAdv["Handler/Advice.hs"]
         Found["Foundation.hs"]
     end
-    subgraph L2["ドメイン層（Yesod に依存しない）"]
+    subgraph L2["ドメイン層（Handler 層を知らない）"]
         Sync["Sync.hs"]
         Advice["Advice.hs"]
         Db["Db.hs"]
@@ -64,7 +64,9 @@ flowchart TB
     L3 --> L2
 ```
 
-重要なのは **矢印が下向きにしかない**ことです。`Metric.hs` は `Sync.hs` を知らず、`Sync.hs` は `Handler` を知りません。これが守られていると、
+重要なのは **矢印が下向きにしかない**ことです。`Metric.hs` は `Sync.hs` を知らず、`Sync.hs` は `Handler` を知りません。
+
+ただし L2 は完全に Yesod 非依存というわけではありません。`Sync.hs`・`Advice.hs`・`Oura.hs` は素の `ClassyPrelude` を import していますが、`Db.hs` は `ClassyPrelude.Yesod`（`ReaderT SqlBackend` などの Persistent 由来の型を含む）を import しています。ただし `HandlerFor` や `Route` のような Web ハンドラ寄りの型は使っておらず、`Handler` 層を知らないという「矢印が下向き」の性質自体は保たれています。この区別が守られていると、
 
 - 下の層を単体でテストできる（第 14 章）
 - Web アプリと cron CLI という 2 つのエントリポイントが、同じドメイン層を共有できる
@@ -362,7 +364,7 @@ share [mkPersist sqlSettings, mkMigrate "migrateAll"]
 ## 1.7 この章のまとめ
 
 - 読む順序は「依存関係 → 型 → 実装」。ファイルを上から読まない。
-- 層をまたぐ矢印は一方向に保つ。ドメイン層が Web フレームワークを知らないことが、テスト容易性と再利用（Web + cron）を生む。
+- 層をまたぐ矢印は一方向に保つ。ドメイン層が Handler 層を知らないことが、テスト容易性と再利用（Web + cron）を生む（`Db.hs` は Persistent 由来の型を得るため `ClassyPrelude.Yesod` を import するが、Web ハンドラ寄りの型は使わない）。
 - export リストはモジュールの契約。省略は「設計を書かない」という選択。
 - import は 4 形式を使い分ける。同名衝突は `hiding` と `qualified` で解く。
 - 拡張の一覧はモジュールの要約として読める。

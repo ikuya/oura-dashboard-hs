@@ -112,7 +112,7 @@ sendStatusJSON status202 (A.object ["job_id" A..= jid, "status" A..= ("queued" :
 
 **(3) スレッドの寿命が管理されていない。** サーバーが停止するとき、走っているワーカーは中断されます。個人用アプリなので許容されていますが、業務システムなら `bracket` でクリーンアップを保証すべきところです。
 
-**(4) `-threaded` が必要。** `package.yaml:77` で `-threaded -rtsopts -with-rtsopts=-N` が指定されています。これがないと OS スレッドが 1 つしかなく、外部プロセスの待ち合わせなどでブロックが発生しえます。並行処理を使うなら必須の設定です。
+**(4) `-threaded` が必要。** `package.yaml:78` で `-threaded -rtsopts -with-rtsopts=-N` が指定されています。これがないと OS スレッドが 1 つしかなく、外部プロセスの待ち合わせなどでブロックが発生しえます。並行処理を使うなら必須の設定です。
 
 ## 13.3 タイムアウトと子プロセス
 
@@ -198,7 +198,7 @@ apiTimeoutMicros = 15 * 1000000
 ## 13.4 状態遷移を型で表す
 
 ```haskell
--- src/Advice.hs:49
+-- src/Advice.hs:50
 data JobStatus = Queued | Running | Completed | Failed
     deriving (Eq, Show)
 
@@ -258,7 +258,7 @@ case jobState job of
 ## 13.5 増え続けるコレクション
 
 ```haskell
--- src/Advice.hs:159
+-- src/Advice.hs:160
 setJob jobs jid f = atomically $ modifyTVar' jobs (M.adjust f jid)
 ```
 

@@ -305,7 +305,7 @@ when (null $ appSecretKey appSettings) $
 一方、ログファイルが開けない場合は落としません。
 
 ```haskell
--- src/Logging.hs:31
+-- src/Logging.hs:33
 -- Logging must never take the process down: if the directory or file cannot be
 -- opened we report the reason on stderr once and fall back to stdout, rather
 -- than failing startup.
