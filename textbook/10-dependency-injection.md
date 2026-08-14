@@ -83,7 +83,7 @@ realClient appLog token = OuraClient
 
 注目すべき点が 3 つあります。
 
-**(1) 部分適用でクライアントを組み立てている。** `getDated "/v2/usercollection/daily_sleep"` は、`getDated :: Text -> DateRange -> IO [Value]` に第 1 引数だけ与えた**関数**です。9 フィールドのうち 8 つ（`getDailySleep` 〜 `getVO2Max`）はこの `getDated` にパスだけ変えて束ねられています。継承もテンプレートメソッドも使っていません。残る `getHeartrate` だけは上の抜粋にあるとおり別実装で、`start_date`/`end_date` ではなく `start_datetime`/`end_datetime` を要求する Oura API のエンドポイントに合わせて `getPaged` を直接呼んでいます。
+**(1) 部分適用でクライアントを組み立てている。** `getDated "/v2/usercollection/daily_sleep"` は、`getDated :: Text -> DateRange -> IO [Value]` に第 1 引数だけ与えた**関数**です。9 フィールドのうち 8 つ（`getDailySleep` 〜 `getVO2Max`）はこの `getDated` にパスだけ変えて束ねられています（第 2 章で部分適用の例として見た形です）。残る `getHeartrate` だけは上の抜粋にあるとおり別実装で、`start_date`/`end_date` ではなく `start_datetime`/`end_datetime` を要求する Oura API のエンドポイントに合わせて `getPaged` を直接呼んでいます。
 
 **(2) 設定（トークン、ログ出力先）はクロージャに閉じ込められている。** `realClient appLog token` を呼んだ時点で、返ってくる `OuraClient` はトークンを内部に保持しています。`where` 内の `httpGet` が引数リストに `token` を持たないのは、外側の引数を捕まえているからです。
 
@@ -140,7 +140,7 @@ erroringSleepClient =
     in base { getDailySleep = \_ -> throwIO (OuraError (Just 401) "Unauthorized") }
 ```
 
-**「sleep だけ失敗するクライアント」**が 3 行で作れます。モックフレームワークの `when(...).thenThrow(...)` に相当することが、言語機能だけでできています。
+第 4 章のレコード更新構文で見たとおり、**「sleep だけ失敗するクライアント」**が 3 行で作れます。モックフレームワークなら `when(...).thenThrow(...)` と書くところです。
 
 このスタブを使ったテストが、第 7 章で見た部分的失敗の検証です。
 
@@ -269,7 +269,7 @@ instance MonadOura TestM where ...
 
 正直に弱点も書いておきます。
 
-**(1) フィールドが増えると全実装の更新が必要。** `OuraClient` に 10 個目のメトリックを足すと、`realClient`、`stubClient`、`stubClientPure`（`test/SyncSpec.hs:58`）、`syncStubClient`（`test/AppSpec.hs:25`）の 4 箇所を直すことになります。
+**(1) フィールドが増えると全実装の更新が必要。** `OuraClient` に 10 個目のフィールド（新しいメトリックの取得関数）を足すと、`realClient`、`stubClient`、`stubClientPure`（`test/SyncSpec.hs:58`）、`syncStubClient`（`test/AppSpec.hs:25`）の 4 箇所を直すことになります。
 
 これは「レコードのフィールドを網羅する」ための構文がないためです。緩和策として、既定値を持つクライアントを 1 つ用意する手があります。
 

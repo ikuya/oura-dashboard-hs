@@ -101,11 +101,11 @@ getDailyMetrics
 
 ここでの `DailyMetric` は `Metric.hs` の方です。persistent 側のエンティティ型はスコープに入っておらず、raw SQL の結果を直接 `A.Value` にしています。だから `Db.hs` の中では衝突が起きようがありません。これは偶然ではなく、次節の設計判断（型安全クエリを使わない）の帰結です。
 
-実際に衝突が**起きうる**のは、両方の `DailyMetric` がスコープに入るモジュール、つまり `Handler/Api.hs` です。ここは `import Import`（`Model` の `DailyMetric` を再輸出）と `import Metric (...)` を両方行っていますが、後者の import リストから `DailyMetric` を明示的に外しています。
+実際に衝突が**起きうる**のは、両方の `DailyMetric` がスコープに入るモジュール、つまり `Handler/Api.hs` です。ここは `import Import`（`Model` の `DailyMetric` を再エクスポート）と `import Metric (...)` を両方行っていますが、後者の import リストから `DailyMetric` を明示的に外しています。
 
 ```haskell
 -- src/Handler/Api.hs:11,19-20
-import Import                                    -- Model.DailyMetric を再輸出
+import Import                                    -- Model.DailyMetric を再エクスポート
 ...
 import Metric (Metric (..), dailyMetricName, dashboardMetrics,
                metricName, parseDailyMetric)     -- DailyMetric 自体は挙げていない
@@ -162,7 +162,7 @@ getDailyMetrics metric (DateRange start end) = do
 - カラム名を変えたとき、SQL 文字列は追従しない
 - プレースホルダの数と引数の数が合っているかを型が検査しない
 
-だから **テストで補償する必要があります**。実際 `test/DbSpec.hs` が 206 行あり、各クエリをインメモリ SQLite に対して検証しています。
+だから **テストで補う必要があります**。実際 `test/DbSpec.hs` が 206 行あり、各クエリをインメモリ SQLite に対して検証しています。
 
 > **一般則**: 型安全機構を外す判断をしたら、外した分をテストで埋める。「型で守れないなら、テストで守る」を明示的にトレードする。
 
@@ -343,7 +343,7 @@ requireAuth = do
 
 Python のデコレータ `@login_required` に相当するものを、**ハンドラの先頭で呼ぶ関数**として実装しています。Haskell にはデコレータ構文がないので、この形が素直です。
 
-**弱点は「書き忘れても動いてしまう」こと。** 型で強制するには、認証済みを表す型（`AuthenticatedHandler a` のような newtype）を作って全ハンドラをそれに乗せる方法がありますが、記述量が跳ね上がります。このプロジェクトは**テストで補償**しています。
+**弱点は「書き忘れても動いてしまう」こと。** 型で強制するには、認証済みを表す型（`AuthenticatedHandler a` のような newtype）を作って全ハンドラをそれに乗せる方法がありますが、記述量が跳ね上がります。このプロジェクトは**テストで補って**います。
 
 ```haskell
 -- test/AppSpec.hs:78

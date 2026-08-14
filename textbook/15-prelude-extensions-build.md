@@ -107,7 +107,7 @@ Left (e :: SomeException) -> do
 
 Haskell 2010 で書ける制約は `C a`（型変数への適用）の形だけで、`MonadReader SqlBackend m` のように**具体型を含む制約**を書くにはこの拡張が要ります。persistent / Yesod まわりのコードで要求されることがあるため、scaffolding の定番セットに入っています。
 
-ただし、このプロジェクトの自前のシグネチャに現れる制約は `MonadIO m` / `MonadUnliftIO m` / `MonadLogger m` のような単純な形だけです。頻出する `ReaderT SqlBackend m` は制約ではなく**型**の側に現れるので、この拡張を必要としません。実際、`Sync.hs` から宣言を外してもビルドは通ります（確認済み）。つまり現状は、後述の「使わなくなった拡張が残ることもある」と同じ状態です。
+ただし、このプロジェクトの自前のシグネチャに現れる制約は `MonadIO m` / `MonadUnliftIO m` / `MonadLogger m` のような単純な形だけです。頻出する `ReaderT SqlBackend m` は制約ではなく**型**の側に現れるので、この拡張を必要としません。実際、`Sync.hs` から宣言を外してもビルドは通ります。つまり現状は、後述の「使わなくなった拡張が残ることもある」と同じ状態です。
 
 ### `DerivingStrategies` + `GeneralizedNewtypeDeriving`
 
@@ -172,7 +172,7 @@ field "day" (headEx rows) `shouldBe` Just (A.String "2024-01-01")
 
 **「安全版が既定、危険版は `Ex` 付き」** という命名が重要です。危険な操作を書くときに、自分でも気づけます。
 
-**(3) よく使うものが最初から入っている。** `Data.Text`、`Data.Map`、`Control.Monad`、`Data.Maybe`、`UnliftIO`、`Control.Concurrent.STM` などが re-export されます。`ClassyPrelude.Yesod` はさらに Yesod と persistent を含みます（`src/Db.hs:14`、`src/Model.hs:17`）。
+**(3) よく使うものが最初から入っている。** `Data.Text`、`Data.Map`、`Control.Monad`、`Data.Maybe`、`UnliftIO`、`Control.Concurrent.STM` などが再エクスポートされます。`ClassyPrelude.Yesod` はさらに Yesod と persistent を含みます（`src/Db.hs:14`、`src/Model.hs:17`）。
 
 ### 落とし穴
 
@@ -317,7 +317,7 @@ when:
 - 拡張の一覧はモジュールの要約。定番セット（`NoImplicitPrelude`, `OverloadedStrings`, `TemplateHaskell`, `FlexibleContexts`, `LambdaCase`, `ScopedTypeVariables`, `RecordWildCards`）を覚える。
 - `TemplateHaskell` を忘れると `$logInfo` が謎のエラーになる。
 - `ScopedTypeVariables` が要る＝例外を捕まえている合図。
-- ClassyPrelude は `Text` 中心・部分関数を隠す・re-export が多い。何が入っているかはコンパイラに聞く。
+- ClassyPrelude は `Text` 中心・部分関数を隠す・再エクスポートが多い。何が入っているかはコンパイラに聞く。
 - 同名で型が違う関数は `hiding` して標準版を使ってよい。
 - ビルドエラーは `grep -E '... error' -A 12` で抽出する。
 - 初めて使う API は `:t` / `:i` で型を確認してから書く。名前から推測しない。

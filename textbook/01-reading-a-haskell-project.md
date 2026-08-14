@@ -37,7 +37,7 @@ Oura Ring（睡眠計測リング）が測ったデータを、
 
 という、**取り込み・保存・配信**の 3 つに分かれた小さなアプリです。加えて `claude` CLI を子プロセスとして起動し、非同期ジョブで健康アドバイスを生成する機能があります（`Advice.hs`）。
 
-規模は `src/` が約 2,200 行、テストとエントリポイントを含めて約 3,200 行。「一人で読み切れる大きさで、実務にある要素（HTTP クライアント、DB、認証、非同期ジョブ、CLI、テスト）が一通り入っている」ため、教材にちょうど良い題材です。
+規模は `src/` が約 2,200 行、テストとエントリポイントを含めて約 3,200 行。一人で読み切れる大きさでありながら、実務にある要素（HTTP クライアント、DB、認証、非同期ジョブ、CLI、テスト）が一通り入っているため、教材にちょうど良い題材です。
 
 ## 1.2 読む順序は「依存 → 型 → 実装」
 
@@ -88,7 +88,7 @@ flowchart TB
 
 重要なのは **矢印が下向きにしかない**ことです。`Metric.hs` は `Sync.hs` を知らず、`Sync.hs` は `Handler` を知りません。
 
-ただし L2 は完全に Yesod 非依存というわけではありません。`Sync.hs`・`Advice.hs`・`Oura.hs` は素の `ClassyPrelude` を import していますが、`Db.hs` は `ClassyPrelude.Yesod`（`ReaderT SqlBackend` などの Persistent 由来の型を含む）を import しています。ただし `HandlerFor` や `Route` のような Web ハンドラ寄りの型は使っておらず、`Handler` 層を知らないという「矢印が下向き」の性質自体は保たれています。この区別が守られていると、
+ただし L2 は完全に Yesod 非依存というわけではありません。`Sync.hs`・`Advice.hs`・`Oura.hs` は素の `ClassyPrelude` を import していますが、`Db.hs` は `ClassyPrelude.Yesod`（`ReaderT SqlBackend` などの Persistent 由来の型を含む）を import しています。とはいえ `HandlerFor` や `Route` のような Web ハンドラ寄りの型は使っておらず、`Handler` 層を知らないという「矢印が下向き」の性質自体は保たれています。この区別が守られていると、
 
 - 下の層を単体でテストできる（第 14 章）
 - Web アプリと cron CLI という 2 つのエントリポイントが、同じドメイン層を共有できる
@@ -176,10 +176,10 @@ module Metric ( DailyMetric (..), dailyMetricName ) where
 
 - 括弧内に列挙したものだけが外から見えます。**省略すると全部公開**です。
 - 型は `DailyMetric` と書くと型名だけ、`DailyMetric (..)` と書くとコンストラクタも公開されます。
-- `module Foo (module Bar) where` と書くと、import したものをそのまま再輸出できます（`src/Import.hs` がこの形）。
+- `module Foo (module Bar) where` と書くと、import したものをそのまま再エクスポート（re-export）できます（`src/Import.hs` がこの形）。
 
 ```haskell
--- src/Import.hs（全 6 行）— re-export だけを行うモジュール
+-- src/Import.hs（全 6 行）— 再エクスポートだけを行うモジュール
 module Import
     ( module Import
     ) where
@@ -188,7 +188,7 @@ import Foundation            as Import
 import Import.NoFoundation   as Import
 ```
 
-`import Foundation as Import` は「`Foundation` の中身を `Import` という別名で取り込む」宣言で、その `Import` を丸ごと re-export しています。ハンドラは `import Import` の 1 行で必要なものが全部揃う、という仕掛けです。
+`import Foundation as Import` は「`Foundation` の中身を `Import` という別名で取り込む」宣言で、その `Import` を丸ごと再エクスポートしています。ハンドラは `import Import` の 1 行で必要なものが全部揃う、という仕掛けです。
 
 このリポジトリには対照的な 2 つの例があります。
 
@@ -401,7 +401,7 @@ share [mkPersist sqlSettings, mkMigrate "migrateAll"]
 |---|---|---|
 | `-- \|` / `-- ^` | Haddock（後続／直前に付く） | `runSync` の引数注釈 |
 | `module M (a, T (..)) where` | export リスト。`(..)` はコンストラクタも公開 | `Metric.hs` |
-| `module M (module X) where` | re-export | `Import.hs` |
+| `module M (module X) where` | 再エクスポート | `Import.hs` |
 | `import M hiding (f)` | 一部を除いて取り込む | `import ClassyPrelude hiding (foldM)` |
 | `import qualified M as N` | 修飾名でのみ使う | `import qualified Data.Map.Strict as M` |
 | `{-# LANGUAGE X #-}` | 言語拡張の有効化 | 全ファイル冒頭 |

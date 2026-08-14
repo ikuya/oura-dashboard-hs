@@ -143,7 +143,7 @@ return $ if M.null (syncErrors result)
 
 ### 文法メモ: `try` の型と、捕まえる型の決まり方
 
-ClassyPrelude が re-export する `try` は `UnliftIO.Exception` のものです。
+ClassyPrelude が再エクスポートする `try` は `UnliftIO.Exception` のものです。
 
 ```
 try :: (MonadUnliftIO m, Exception e) => m a -> m (Either e a)
@@ -283,7 +283,7 @@ Handler 層では、失敗はしばしば「途中で応答を返して終わる
 sendStatusJSON :: (MonadHandler m, ToJSON c) => Status -> c -> m a
 ```
 
-戻り値が `m a`——**呼び出し側が要求する任意の型になれる**、ということは、**この関数から値が返ってこない**ことを意味します（内部で制御用の例外を投げ、Yesod が捕まえます）。任意の型の値を作る方法は、実際には存在しないからです。
+戻り値が `m a`——**呼び出し側が要求する任意の型になれる**、ということは、**この関数から値が返ってこない**ことを意味します。任意の型の値を実際に作って返す方法は存在しないからです（実装上は、内部で制御用の例外を投げて Yesod が捕まえます）。
 
 だから次のような書き方ができます。
 

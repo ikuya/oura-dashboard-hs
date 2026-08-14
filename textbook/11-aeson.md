@@ -293,7 +293,7 @@ C プリプロセッサです（`{-# LANGUAGE CPP #-}` が必要）。`package.y
 return AppSettings {..}
 ```
 
-第 4 章で見た `{..}` です。フィールドが 20 個あるとき、`AppSettings { appStaticDir = appStaticDir, ... }` と書くのは苦行です。**大きな設定レコードで特に効きます。**
+第 4 章で見た `{..}` です。フィールドが 19 個あると、`AppSettings { appStaticDir = appStaticDir, ... }` と書くのは苦行です。**大きな設定レコードで特に効きます。**
 
 ### 「空文字列は未設定」の扱い
 
