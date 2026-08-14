@@ -16,6 +16,8 @@ Haskell の関数定義には、他の言語にない自由度があります。
   - [文法メモ: as パターン（`@`）](#文法メモ-as-パターン)
   - [文法メモ: パターンマッチの失敗が「捨てられる」場所](#文法メモ-パターンマッチの失敗が捨てられる場所)
 - [2.3 ガードとパターンガード](#23-ガードとパターンガード)
+  - [真偽値のガードを連ねる](#真偽値のガードを連ねる)
+  - [文法メモ: パターンガード](#文法メモ-パターンガード)
 - [2.4 `where` と `let`](#24-where-と-let)
 - [2.5 部分適用と関数合成](#25-部分適用と関数合成)
   - [部分適用](#部分適用)
@@ -157,7 +159,17 @@ let dated = [ (day, r) | r <- records, Just day <- [recordDay r] ]
 
 ## 2.3 ガードとパターンガード
 
-`|` の右には、真偽値だけでなく**パターン束縛**や `let` も書けます。これをパターンガードと呼びます。
+ガードの `|` の右は、正確には**カンマで連ねた条件の列**です。それぞれの条件には次の 3 つの形が書けます（Haskell 2010 のガードの定義。3 つ目がパターンガードです）。
+
+| 形 | 意味 |
+|---|---|
+| 真偽値の式 | `True` なら次の条件へ進む |
+| `let x = e` | 以降の条件と右辺で使える束縛 |
+| `pat <- expr`（**パターンガード**） | `expr` を評価し、パターンにマッチしたら束縛して次へ。しなければこの枝を捨てる |
+
+列の条件がすべて成立したときだけ、その枝の右辺が選ばれます。このコードベースで使われているのは 1 番目の形（真偽値をカンマで連ねる）だけです。まず実例を見てから、パターンガードの文法を書き換え例で確認します。
+
+### 真偽値のガードを連ねる
 
 ```haskell
 -- src/DateText.hs:49
@@ -170,13 +182,13 @@ parseDayText t = case T.splitOn "-" t of
 
 読み方はこうです。
 
-1. `T.splitOn "-" t` の結果が要素 3 個のリスト `[y, m, d]` である
-2. **かつ** それぞれの長さが 4, 2, 2 である
-3. **かつ** すべて数字だけからなる
+1. まず**パターン**: `T.splitOn "-" t` の結果が要素 3 個のリスト `[y, m, d]` である
+2. 次に**ガード**: それぞれの長さが 4, 2, 2 である
+3. **かつ**（`,` は AND）すべて数字だけからなる
 
-`,` で区切られたガードは AND です。この 3 条件が「`YYYY-MM-DD` の形をしている」の定義になっています。
+`case` の枝にガードを付けると、このように「形（パターン）」と「値の条件（ガード）」を 1 つの枝にまとめられます。この 3 条件が「`YYYY-MM-DD` の形をしている」の定義になっています。なお、ここで `|` の右に並んでいるのはどちらもただの真偽値の式であって、パターンガードではありません。
 
-より本格的なパターンガードの例が `collectGaps` です。
+パターンと述語の組み合わせは `collectGaps` にもあります。
 
 ```haskell
 -- src/Sync.hs:179
@@ -202,6 +214,23 @@ step end acc metric
 
 温度は readiness から派生生成されるので、同期対象から外す——という**仕様上の例外**が、ガード 1 行とコメントで表現されています。
 
+### 文法メモ: パターンガード
+
+`|` の右には `pat <- expr` という形も書けます。`expr` を評価してパターンにマッチしたら変数を束縛して次の条件へ進み、マッチしなければ**その枝ごと捨てて**次のガード・次の等式に落ちます。「`Maybe` を返す関数を呼び、`Just` のときだけこの枝を選ぶ」が典型的な使い方です。
+
+このコードベースには実例がないため、2.2 節で見た `extractScore` の `Spo2` の分岐（`case` + as パターン）をパターンガードで書き換えた例を示します（**リポジトリのコードではありません**）。
+
+```haskell
+-- 書き換え例。実物は Sync.hs の case 式（2.2 節）
+spo2Score :: Value -> Maybe Value
+spo2Score record
+    | Just nested@(A.Object _) <- jsonLookup "spo2_percentage" record
+        = jsonLookup "average" nested
+    | otherwise = jsonLookup "spo2_percentage" record
+```
+
+1 本目のガードは「`spo2_percentage` キーがあり、**かつ**その値がオブジェクトである」ときだけ成立します。マッチしなければ（キーが無い、または値がスカラー）`otherwise` に落ちます。実物が `case` で書かれているのは、マッチしなかったときに検索結果（`other`）をそのまま返せて、同じ `jsonLookup` を 2 回書かずに済むからです。**どちらでも書ける場面では、同じ式を二度評価しない方・分岐全体が 1 箇所に見える方を選ぶ**、というのが実務の判断です。
+
 ## 2.4 `where` と `let`
 
 どちらもローカル束縛ですが、性質が違います。
@@ -219,6 +248,7 @@ extractKeyFields metric row =
         base = [("day", g "day"), ("score", g "score")]
         extra = case metric of
             Sleep     -> [("contributors", g "contributors")]
+            Readiness -> [("contributors", g "contributors")]
             Activity  -> [("active_calories", g "active_calories"), ("steps", g "steps")]
             ...
     in A.Object (KM.fromList (base ++ extra))
@@ -413,7 +443,7 @@ let req = setRequestHeader "Authorization" ["Bearer " <> encodeUtf8 token]
 - 分岐は「形なら複数等式／`case`」「値の条件ならガード」で選ぶ。
 - as パターン（`x@(C y)`）は「全体と部品の両方が欲しい」ときに使う。
 - 内包表記と `do` では、パターンマッチの失敗が「その要素を捨てる」になる。`Just x <- [m]` はその応用。
-- パターンガード（`| pat <- expr`、`, cond`）で、形と条件を 1 行に書ける。
+- ガードは `,` で条件を連ねられる（AND）。`pat <- expr`（パターンガード）も書けるが、このコードベースでは未使用。
 - `where` は関数全体、`let` は式の中。補助関数はスコープを最小にする。`where` は入れ子にできる。
 - 引数を部分適用して関数を作る。共通実装＋パラメータの表現手段になる。
 - 変換の連鎖はポイントフリー（`.`）で書くと流れが見える。2〜3 段まで。
@@ -426,7 +456,8 @@ let req = setRequestHeader "Authorization" ["Bearer " <> encodeUtf8 token]
 | `f (C x) = ...` | コンストラクタパターン | `metricName (Daily m)` |
 | `x@(C y)` | as パターン | `range@(DateRange start end)` |
 | `f x \| cond = ...` | ガード | `\| metric == Daily Temperature` |
-| `\| pat <- e, cond` | パターンガード | `parseDayText` |
+| `\| c1, c2 -> ...` | ガードの連結（`,` は AND） | `parseDayText` |
+| `\| pat <- e` | パターンガード（本コードベースでは未使用） | 2.3 の書き換え例 `spo2Score` |
 | `[ e \| p <- xs, cond ]` | リスト内包表記（失敗は要素を捨てる） | `[ (ts, bpm) \| (ts, Just bpm) <- records ]` |
 | `where` / `let ... in` | ローカル束縛（関数全体／式の中） | `realClient`, `extractKeyFields` |
 | `f a` の部分適用 | 引数を一部だけ与える | `getDated "/v2/..."` |

@@ -39,7 +39,7 @@ Haskell のソースは、たいてい `{-# LANGUAGE ... #-}` の列から始ま
 | `NoImplicitPrelude` | ほぼ全部 | ClassyPrelude を使う |
 | `OverloadedStrings` | ほぼ全部 | 文字列リテラルを `Text` として使う |
 | `TemplateHaskell` | 多数 | `$logInfo`、ルート生成、モデル生成 |
-| `FlexibleContexts` | 多数 | `ReaderT SqlBackend m` を制約に書く |
+| `FlexibleContexts` | 多数 | 具体型を含む制約を書けるようにする（現状は実質未使用。後述） |
 | `TypeFamilies`, `MultiParamTypeClasses` | Yesod 関連 | フレームワークの型クラス |
 | `ScopedTypeVariables` | 数個 | `(e :: IOException)` のような型注釈 |
 | `RecordWildCards` | 数個 | `App {..}`、`AppSettings {..}` |
@@ -105,7 +105,9 @@ Left (e :: SomeException) -> do
 {-# LANGUAGE FlexibleContexts  #-}
 ```
 
-Haskell 2010 の制約は `C a`（型変数への適用）だけが許されます。`MonadReader SqlBackend m` のように**具体型を含む制約**を書くにはこの拡張が要ります。persistent / Yesod を使うと自然に必要になるので、実質的には定番セットの一部です。
+Haskell 2010 で書ける制約は `C a`（型変数への適用）の形だけで、`MonadReader SqlBackend m` のように**具体型を含む制約**を書くにはこの拡張が要ります。persistent / Yesod まわりのコードで要求されることがあるため、scaffolding の定番セットに入っています。
+
+ただし、このプロジェクトの自前のシグネチャに現れる制約は `MonadIO m` / `MonadUnliftIO m` / `MonadLogger m` のような単純な形だけです。頻出する `ReaderT SqlBackend m` は制約ではなく**型**の側に現れるので、この拡張を必要としません。実際、`Sync.hs` から宣言を外してもビルドは通ります（確認済み）。つまり現状は、後述の「使わなくなった拡張が残ることもある」と同じ状態です。
 
 ### `DerivingStrategies` + `GeneralizedNewtypeDeriving`
 
@@ -247,7 +249,7 @@ try :: (MonadUnliftIO m, Exception e) => m a -> m (Either e a)
 `:i`（info）はインスタンスも表示するので、「この型は `ToJSON` を持っているか」「この変換子は `MonadUnliftIO` か」を調べるのに便利です。
 
 ```sh
-$ printf ':i MonadUnliftIO\n' | stack exec ghci -- -v0
+$ printf ':m + ClassyPrelude\n:i MonadUnliftIO\n' | stack exec ghci -- -v0
 class MonadIO m => MonadUnliftIO m where
   withRunInIO :: ((forall a. m a -> IO a) -> IO b) -> m b
 instance MonadUnliftIO IO

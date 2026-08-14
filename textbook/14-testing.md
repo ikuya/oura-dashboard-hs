@@ -56,8 +56,8 @@ spec = do
 特別な構文は 1 つもありません。
 
 ```
-describe :: String -> SpecWith a -> SpecWith a
-it       :: Example e => String -> e -> SpecWith (Arg e)
+describe :: HasCallStack => String -> SpecWith a -> SpecWith a
+it       :: (HasCallStack, Example a) => String -> a -> SpecWith (Arg a)
 shouldBe :: (HasCallStack, Show a, Eq a) => a -> a -> Expectation
 ```
 
@@ -126,7 +126,7 @@ runMem action = runSqlite ":memory:" $ do
 
 **トップレベルには型を書くのが原則**（`-Wmissing-signatures` もそう言います）ですが、テストコードで、かつ理由がコメントに書かれているので許容範囲です。**原則を外れるときに理由を書く、という規律の方が重要**です。
 
-なおこの書き方は**単相性制限**（monomorphism restriction）の影響を受けます。引数のある定義（`runMem action = ...`）なので制限そのものは適用されませんが、型が推論で 1 つに固定されるため、**異なるモナドスタックで使うとエラーになる**可能性があります。実際には `runMem` の使用箇所すべてで同じ型なので問題になっていません。
+なお、シグネチャを書かないと**単相性制限**（monomorphism restriction）で型が単相に固定されるのでは、と心配になるかもしれませんが、`runMem action = ...` は引数を持つ**関数束縛**なので制限の対象外です。推論された型はそのまま一般化され、`runSqlite :: MonadUnliftIO m => Text -> ReaderT SqlBackend (NoLoggingT (ResourceT m)) a -> m a` から `runMem :: MonadUnliftIO m => ReaderT SqlBackend (NoLoggingT (ResourceT m)) a -> m a` という多相型が付きます（`stack ghci` で `:t runMem` として確認できます）。制限が効くのは `runMem = runSqlite ":memory:" . (...)` のような**引数のない束縛**に書き換えた場合で、そのときは制約付きの型が一般化されず、曖昧型エラーや意図しない単相化が起きえます。
 
 ## 14.4 「呼び出し」を検証する
 

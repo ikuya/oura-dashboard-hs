@@ -130,7 +130,7 @@ data SyncResult = SyncResult
     } deriving (Show, Eq)
 ```
 
-「sleep は成功して 30 行、readiness は 401 で失敗」という**部分的失敗**を表現しています。1 つのメトリックが失敗しても他は続行するのが仕様なので、例外を最後まで飛ばすわけにはいきません。`runSync` は例外を投げず、必ず `SyncResult` を返します。
+「sleep は成功して 30 行、readiness は 401 で失敗」という**部分的失敗**を表現しています。1 つのメトリックが失敗しても他は続行するのが仕様なので、例外を最後まで飛ばすわけにはいきません。`runSync` は `OuraError` を外へ漏らさず、必ず `SyncResult` を返します（`tryOura` が捕まえるのは `OuraError` だけなので、DB 障害など Oura 以外の例外はそのまま伝播します）。
 
 呼び出し側はそれを使って終了コードを決めます。
 

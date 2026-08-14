@@ -205,7 +205,7 @@ instance MonadUnliftIO IO
 instance MonadUnliftIO m => MonadUnliftIO (ReaderT r m)
 ```
 
-`ReaderT r m` は（`m` がそうなら）`MonadUnliftIO` です。環境 `r` を保持したまま `IO` に戻せるからです。一方、**状態を持つモナド（`StateT`）は `MonadUnliftIO` にできません**。`IO` に戻して並行実行したとき、状態をどう合流させるか決められないからです。
+`ReaderT r m` は（`m` がそうなら）`MonadUnliftIO` です。環境 `r` を保持したまま `IO` に戻せるからです。このほか monad-logger が `LoggingT` / `NoLoggingT` のインスタンスを定義しており、`DailySync` の `LoggingT IO` の上で `runSync` が動くのはそのためです。一方、**状態を持つモナド（`StateT`）は `MonadUnliftIO` にできません**。`IO` に戻して並行実行したとき、状態をどう合流させるか決められないからです。
 
 **実務での意味**: `StateT` を使い始めると例外処理や並行処理で詰まります。可変状態が要るなら、`StateT` ではなく `ReaderT` に `TVar` / `IORef` を持たせる **ReaderT パターン**が主流です。このプロジェクトはまさにその形で、`App` レコードに `appAdviceJobs :: TVar (Map Text AdviceJob)` を持たせています（第 13 章）。
 

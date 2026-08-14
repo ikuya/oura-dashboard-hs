@@ -75,7 +75,7 @@ flowchart TB
     end
 
     App --> HApi & HAdv & Found
-    DS --> Sync
+    DS --> Sync & Oura
     HApi --> Sync & Db & Oura
     HAdv --> Advice & Db
     Sync --> Oura & Db
@@ -83,6 +83,8 @@ flowchart TB
     L2 --> L1
     L3 --> L2
 ```
+
+（図は主要な依存に絞っています。省略した中で唯一「横向き」なのは、`DailySync.hs` が設定読み込みのため同じエントリポイント層の `Application.hs` から `getAppSettings` を import している点です。）
 
 重要なのは **矢印が下向きにしかない**ことです。`Metric.hs` は `Sync.hs` を知らず、`Sync.hs` は `Handler` を知りません。
 
@@ -293,17 +295,19 @@ findMissingRange
 型は読むだけでなく、確かめるものです。
 
 ```sh
-printf ':t groupBy\n' | stack exec ghci -- -v0
+printf ':m + ClassyPrelude\n:t groupBy\n' | stack exec ghci -- -v0
 ```
 
 ```
 groupBy :: IsSequence seq => (Element seq -> Element seq -> Bool) -> seq -> [seq]
 ```
 
+（`:m + ClassyPrelude` は「そのモジュールをスコープに足す」GHCi コマンドです。素の GHCi は Prelude しか読み込んでいないので、調べたい名前が属するモジュールを先に足します。プロジェクト自身の関数を調べるときは `stack ghci oura-dashboard-hs:lib` でライブラリごと読み込みます。）
+
 `:i`（info）を使うとインスタンスまで表示されます。
 
 ```sh
-printf ':i Single\n' | stack exec ghci -- -v0
+printf ':m + Database.Persist.Sql\n:i Single\n' | stack exec ghci -- -v0
 ```
 
 ```

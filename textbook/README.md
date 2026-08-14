@@ -59,14 +59,15 @@ stack build
 # テスト
 stack test
 
-# 型を確かめる（この教材で最も多用する操作）
-printf ':t findMissingRange\n:i DailyMetric\n' | stack exec ghci -- -v0
+# ライブラリの関数の型を確かめる（この教材で最も多用する操作）
+printf ':m + ClassyPrelude\n:t groupBy\n' | stack exec ghci -- -v0
 ```
 
-プロジェクトのモジュールを GHCi に読み込む場合:
+プロジェクト自身の関数・型を確かめるときは、ライブラリを読み込んだ GHCi を使います:
 
 ```sh
 stack ghci oura-dashboard-hs:lib
+# 読み込み後に :t findMissingRange や :i SyncResult など
 ```
 
 手元でアプリを起動して確認する場合の注意（`.claude/CLAUDE.md` より）:

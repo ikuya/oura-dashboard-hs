@@ -78,6 +78,7 @@ parseDayText t = case T.splitOn "-" t of
 GHCi で事実を確認します（第 15 章の習慣）。
 
 ```
+> import Data.Time
 > parseTimeM True defaultTimeLocale "%Y-%m-%d" "1999-13-45" :: Maybe Day
 Nothing
 > parseTimeM True defaultTimeLocale "%Y-%m-%d" "2024-02-30" :: Maybe Day
@@ -331,12 +332,14 @@ getAdviceJobR seg = do
 第 12 章で見たとおり、型安全ルーティングの外に出ています。ルート定義を分けられれば型で分かれます。
 
 ```
--- config/routes.yesodroutes（検証が必要）
+-- config/routes.yesodroutes（このままでは重複検査に弾かれる。下記参照）
 /api/advice/history/#Text   AdviceEntryR    GET
 /api/advice/history         AdviceHistoryR  GET
 /api/advice                 AdviceR         POST
 /api/advice/#Text           AdviceJobR      GET
 ```
+
+ただし、これをそのまま書くと Yesod の**重複ルート検査**に弾かれます。`/api/advice/history`（リテラル）と `/api/advice/#Text`（動的）は同じ位置で重なるからで、ルート定義のコメント「Yesod cannot have a literal and a dynamic segment share a position」が指しているのはこの既定の検査です。ルート片に `!` を付ければ検査を個別に無効化でき、その場合は**先に書いたルートが勝つ**という定義順のルールになります（Yesod book "Routing and Handlers" の Overlap checking 参照）。つまり分けるなら「`!` で検査を切り、定義順に依存する」という別の脆さを引き受けることになります。
 
 **判断が分かれるのは URL 契約を変えるかどうか**です。このアプリはフロントエンド（`static/*.js`）を Python 版と共有しているため、URL を変えると「Python 版の `static/` をそのまま流用できる」という利点を失います。
 

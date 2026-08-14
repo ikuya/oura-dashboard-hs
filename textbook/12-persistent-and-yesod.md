@@ -283,6 +283,8 @@ mkYesodDispatch "App" resourcesApp
 /api/advice/#Text           AdviceJobR     GET
 ```
 
+（コメントの「cannot」は正確には、Yesod の**重複ルート検査**が既定でリテラルと動的セグメントの重なりを拒否する、という意味です。ルート片に `!` を付けて検査を無効化する手もありますが、その場合は定義順でのマッチになります。第 16 章 16.6 で検討します。）
+
 ```haskell
 -- src/Handler/Advice.hs:53
 getAdviceJobR :: Text -> Handler Value

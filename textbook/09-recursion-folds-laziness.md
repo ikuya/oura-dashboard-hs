@@ -295,6 +295,7 @@ let byMetric = M.fromListWith (flip (++))
 `M.fromListWith f` は、キーが衝突したとき `f 新しい値 既存の値` を呼びます。GHCi で確かめられます。
 
 ```
+> import qualified Data.Map.Strict as M
 > M.toList (M.fromListWith (++) [(1,"a"),(1,"b"),(1,"c")])
 [(1,"cba")]
 > M.toList (M.fromListWith (flip (++)) [(1,"a"),(1,"b"),(1,"c")])

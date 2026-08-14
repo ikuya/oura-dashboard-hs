@@ -67,16 +67,16 @@ findMissingRange "2024-01-31" (Daily Sleep) someRandomText
 
 | 戦略 | 意味 |
 |---|---|
-| `stock` | GHC 組み込みの導出（`Show`、`Eq`、`Ord`、`Enum` など） |
+| `stock` | GHC 組み込みの導出（`Show`、`Eq`、`Ord`、`Enum` などの決まった一覧のみ） |
 | `newtype` | 中身の型のインスタンスをそのまま流用（`GeneralizedNewtypeDeriving`） |
-| `anyclass` | 型クラスの既定実装をそのまま使う |
+| `anyclass` | 空のインスタンスを生成し、クラスの既定実装（`Generic` ベースなど）に任せる（`DeriveAnyClass`） |
 
 ここでの選択は意図的です。
 
 - `Show` は **stock**。`DayText {unDayText = "2024-01-01"}` と表示され、テストの失敗メッセージで newtype であることが分かります（`newtype` 戦略にすると `"2024-01-01"` としか出ず、生の `Text` と区別がつきません）。
 - `Eq`、`Ord`、`ToJSON`、`PersistField` は **newtype**。`Text` としての振る舞いをそのまま使いたい。特に JSON に出るときは `"2024-01-01"` という裸の文字列であってほしい。
 
-**戦略を書かないと GHC がどちらかを選びます。** `ToJSON` を stock 側で導出してしまうと `{"unDayText": "2024-01-01"}` のような出力になり、**JSON API のバイト互換が壊れます**。newtype に何を導出させるかは外部との契約（JSON の形、DB の値）に直結するので、明示する価値があります。
+なお `ToJSON` は stock では導出**できません**（`deriving stock (ToJSON)` は「`ToJSON` is not a stock derivable class」というコンパイルエラーになります。stock は上の表のとおり組み込み一覧限定です）。危険なのは `anyclass` 側です。`deriving anyclass (ToJSON)` は aeson の `Generic` ベースの既定実装による空インスタンスを作り、レコードのフィールド名がそのまま出て `{"unDayText": "2024-01-01"}` という出力になります——**JSON API のバイト互換が壊れます**。しかも `GeneralizedNewtypeDeriving` と `DeriveAnyClass` が両方有効なモジュールで戦略を書かずに `deriving (ToJSON)` とすると、**GHC は anyclass を優先します**（`-Wderiving-defaults` の警告付き）。newtype に何をどう導出させるかは外部との契約（JSON の形、DB の値）に直結するので、戦略を明示する価値があります。
 
 ### `Ord` に意味を持たせる
 
