@@ -181,8 +181,12 @@ runAdviceJob appLog jobs jid prompt saveAdvice' = do
             fail' "claude コマンドが見つかりません。Claude Code がインストールされているか確認してください。"
         Right Nothing ->
             fail' "分析がタイムアウトしました。"
-        Right (Just (ExitFailure _, _, err)) ->
-            fail' (if null err then "Claude Code の実行に失敗しました。" else pack err)
+        Right (Just (ExitFailure _, out, err)) ->
+            fail' (if null err
+                       then if null out
+                                then "Claude Code の実行に失敗しました。"
+                                else "Claude Code の実行に失敗しました: " <> pack out
+                       else pack err)
         Right (Just (ExitSuccess, out, _)) -> do
             let adviceOut = pack out
             setJob jobs jid (\j -> j { jobStatus = Completed, jobAdvice = adviceOut, jobError = Nothing })
