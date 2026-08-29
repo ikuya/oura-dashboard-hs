@@ -14,7 +14,7 @@ import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import Network.HTTP.Types (status202, status400, status500)
 
-import DateText (DateRange (..), DayText (..), addDaysT, todayUtc)
+import DateText (DateRange (..), DayText, addDaysT, parseDayText, todayUtc)
 import Json (jsonArray, jsonText, jsonLookup)
 import Metric (Metric (..), dailyMetricName, dashboardMetrics,
                metricName, parseDailyMetric)
@@ -31,7 +31,20 @@ parseRange = do
     return (DateRange start end)
   where
     paramOr name fallback =
-        maybe fallback DayText <$> lookupGetParam name
+        maybe (return fallback) (requireDayText name) =<< lookupGetParam name
+
+-- | A @YYYY-MM-DD@ value supplied by the client, or a 400.
+--
+-- Wrapping the raw text in 'DayText' unchecked is not enough: such a day goes
+-- on to calendar arithmetic (the heartrate windows in @Sync@ walk backwards
+-- with 'addDaysT'), where @DateText.parseDay@ answers an impossible date like
+-- @1999-13-45@ with @error@ — a 500 for what is really a bad request.
+requireDayText :: Text -> Text -> Handler DayText
+requireDayText name raw =
+    maybe (sendStatusJSON status400
+              (A.object ["error" A..= ("Invalid " <> name <> " date: " <> raw)]))
+          return
+          (parseDayText raw)
 
 -- Auth -------------------------------------------------------------------
 
@@ -114,12 +127,13 @@ postSyncR :: Handler Value
 postSyncR = do
     requireAuth
     body <- jsonBodyOrEmpty
-    let field k = DayText <$> (jsonText =<< jsonLookup k body)
-        requestedStart = field "start"
+    let field k = jsonText =<< jsonLookup k body
         requestedMetrics = mapMaybe parseMetricName
                                <$> (jsonArray =<< jsonLookup "metrics" body)
+    requestedStart <- traverse (requireDayText "start") (field "start")
+    mrequestedEnd  <- traverse (requireDayText "end") (field "end")
     today <- todayUtc
-    let requestedEnd = fromMaybe today (field "end")
+    let requestedEnd = fromMaybe today mrequestedEnd
 
     app <- getYesod
     client <- case appOuraClientOverride app of

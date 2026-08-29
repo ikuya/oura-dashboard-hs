@@ -194,7 +194,7 @@ flowchart LR
 ### 型の基盤（今回のリファクタで新設）
 
 - **`Metric.hs`** — `DailyMetric`（`Sleep`〜`VO2Max` の 9 種）と `Metric`（`Daily DailyMetric | HeartrateSeries`）。`dailyMetricName` が DB・JSON API・Oura API で共有する唯一の文字列表現を作る。`allDailyMetrics = [minBound..maxBound]` により、新しいメトリックを追加すると `case` の非網羅で**コンパイルが落ちる**設計（`extractScore`, `fetchFn` など）。
-- **`DateText.hs`** — `DayText`（`Text` の newtype、`Ord` はテキスト順＝この書式ではそのまま日付順）と `DateRange { rangeStart, rangeEnd }`。`parseDayText` は外部入力（URL セグメント・クエリパラメータ）向けの**形状のみ**の検証（`\d{4}-\d{2}-\d{2}`）。`parseDay` は `Day` への実変換で、失敗時は `error`（後述の改善点参照）。
+- **`DateText.hs`** — `DayText`（`Text` の newtype、`Ord` はテキスト順＝この書式ではそのまま日付順）と `DateRange { rangeStart, rangeEnd }`。`parseDayText` は外部入力（URL セグメント・クエリパラメータ・リクエスト本文）向けの検証で、形状（`\d{4}-\d{2}-\d{2}`、テキスト順＝日付順を保つため）と暦としての妥当性（`1999-13-45` を弾く）の両方を見る。`parseDay` は `Day` への実変換で、失敗時は `error`。外部入力は必ず `parseDayText` を通るため、`parseDay` に届く日付は DB・`formatDay`・検証済み入力のいずれかに限られる。
 - **`Json.hs`** — Oura API のペイロードと `data_json` を読む共通アクセサ。`Sync.hs`/`Advice.hs`/`Handler.Api`/`Handler.Advice` すべてが利用。
 - **`Logging.hs`** — `AppLog`（`LogLevel -> Text -> IO ()` の newtype）。`Oura.OuraClient` の fetch 関数や `Advice.runAdviceJob` のような `forkIO`/プレーン `IO` の経路は `MonadLogger` を持てないため、ログ出口を値として明示的に受け渡す。`Application.makeFoundation` と `DailySync.dailySyncMain` の両方が自分の `LoggerSet` から `AppLog` を作る（プロセスごとに別ファイルへ書くため、共有はしない）。
 
@@ -208,7 +208,7 @@ flowchart LR
 ### Handler 層
 
 - **`Foundation.hs`** — `App` レコード（DB プール、静的ファイル設定、`OuraClient` のテスト用差し替え口、advice ジョブ状態、`AppLog` など）。`requireAuth` がセッション未認証を 401 JSON で弾く。`checkPassword` は bcrypt 検証。
-- **`Handler/Api.hs`** — `postLoginR`/`postLogoutR`（セッション設定）、`getMetricsR`/`getMetricR`（`parseRange` でクエリパラメータから `DateRange` を組み立て、`Db.getDailyMetrics(Bulk)` を呼ぶ）、`getHeartrateR`、`getSyncStatusR`、`postSyncR`（`appOuraClientOverride` があればそれを使い、なければ `OURA_TOKEN` から `realClient` を構築して `Sync.runSync` を実行、`backfillDays = 0` 固定）。`jsonBodyOrEmpty` は `parseCheckJsonBody` の結果を見て、パース失敗時だけ空オブジェクトにフォールバックする（後述：以前は `SomeException` を丸ごと捕捉していた）。
+- **`Handler/Api.hs`** — `postLoginR`/`postLogoutR`（セッション設定）、`getMetricsR`/`getMetricR`（`parseRange` でクエリパラメータから `DateRange` を組み立て、`Db.getDailyMetrics(Bulk)` を呼ぶ）、`getHeartrateR`、`getSyncStatusR`、`postSyncR`（`appOuraClientOverride` があればそれを使い、なければ `OURA_TOKEN` から `realClient` を構築して `Sync.runSync` を実行、`backfillDays = 0` 固定）。日付を受け取る入口（`parseRange` のクエリパラメータ、sync 本文の `start`/`end`）はいずれも `requireDayText` を通し、不正な日付は 400 で弾く。`jsonBodyOrEmpty` は `parseCheckJsonBody` の結果を見て、パース失敗時だけ空オブジェクトにフォールバックする（後述：以前は `SomeException` を丸ごと捕捉していた）。
 - **`Handler/Advice.hs`** — `postAdviceR`（14 日分のペイロードを作り、データが皆無なら 400、そうでなければジョブを作って `forkIO` で起動し 202 を返す）、`getAdviceJobR`（`seg == "history"` かジョブ ID かを文字列で分岐）、`adviceJobStatus`（ジョブの状態に応じて 200/502/202）、`getAdviceEntryR`（`parseDayText` で日付形式を検証してから履歴を引く）。
 - **`Handler/Home.hs`** / **`Handler/Common.hs`** — 静的な `index.html`・favicon・robots.txt の配信。
 
@@ -226,10 +226,6 @@ flowchart LR
 ## 4. 潜在的な改善点
 
 実害が大きいと思われる順に挙げます。**静的読解による判断で、再現テストは未実施です。** 前回のレビュー以降に解消された項目は末尾にまとめています。
-
-### 高: `POST /api/sync` の `end` が心拍同期経路で `error` クラッシュを起こしうる
-
-`Handler.Api.postSyncR` の `field k = DayText <$> (jsonText =<< jsonLookup k body)` は、リクエスト本文の `"start"`/`"end"` を **`parseDayText` の形状検証を経ずに** `DayText` へ包む。`"end"` は `Sync.runSync` → `findMissingRange`（`min requestedEnd today` はテキスト比較なので通過する）→ 心拍同期時の `syncHeartrateRange` 内 `addDaysT (-29) windowEnd` を経て `DateText.parseDay` に届く。`parseDay` は失敗時 `error` を投げる実装（コメント上は「ここに来る日付は DB か `formatDay` 由来だからバグでしかない」という前提だが、この経路はその前提を破っている）。たとえば `{"end": "1999-13-45"}`（桁数は正しいが暦として無効）を送ると 500 で落ちる。`start`/`end` を受け取る全入口を `parseDayText` で検証し、失敗時は 400 を返すのが妥当。日次メトリック側は raw SQL の文字列比較にしか使われないため実害はない。
 
 ### 中: 「今日」の基準がモジュール間で不一致
 
@@ -266,6 +262,6 @@ flowchart LR
 
 ### 前回レビュー以降に解消された項目
 
-- **「日付パースが `error` を呼び 500 クラッシュしうる」（旧・高）** — `DateText.parseDayText`（形状検証・`Maybe` 返し）と `Handler.Advice.getAdviceEntryR` での明示的な 400 化により、advice 履歴経路は解消。ただし上記の通り `postSyncR` の心拍経路には同種のリスクが残っている。
+- **「日付パースが `error` を呼び 500 クラッシュしうる」（旧・高）** — まず `DateText.parseDayText` と `Handler.Advice.getAdviceEntryR` の 400 化で advice 履歴経路が解消。残っていた `POST /api/sync` の心拍経路も、`parseDayText` に暦としての妥当性検証を追加し（形状チェックだけでは `1999-13-45` を通してしまうため）、`Handler.Api.requireDayText` が `parseRange` のクエリパラメータと sync 本文の `start`/`end` の両方を検証して失敗時に 400 を返すようになったことで解消。これにより外部から入った `DayText` は必ず `parseDay` でパースできる。
 - **「`parseBodyOr` が `SomeException` を握り潰す」（旧・中）** — コミット `1d698e2`/`8b206e7` で `Handler.Api.jsonBodyOrEmpty` が `parseCheckJsonBody` の結果を見てパース失敗時のみフォールバックする実装に変更され、非同期例外を含む無関係な例外まで飲み込む問題は解消。
 - **メトリック名・日付・グローバルロガーが文字列/暗黙状態だった問題** — コミット `1835052` で `Metric.hs`（`DailyMetric`/`Metric`）、`DateText.hs`（`DayText`/`DateRange`）、`Logging.hs`（`AppLog`）に型化され、ディスパッチの網羅性がコンパイル時に保証されるようになった。

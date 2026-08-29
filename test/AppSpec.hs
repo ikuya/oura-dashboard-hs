@@ -116,6 +116,12 @@ spec = do
             get (MetricR "unknown")
             statusIs 400
 
+        it "an invalid date query param returns 400" $ do
+            login
+            request $ setMethod "GET" >> setUrl MetricsR
+                >> addGetParam "start" "2024-01-01" >> addGetParam "end" "2024-02-31"
+            statusIs 400
+
     describe "heartrate" $ withApp $ do
         it "returns heartrate rows" $ do
             login
@@ -188,6 +194,26 @@ spec = do
             request $ setMethod "POST" >> setUrl SyncR
             statusIs 202
             bodyContains "synced"
+
+        -- An impossible "end" used to reach the heartrate window arithmetic,
+        -- where parseDay called error and the request died as a 500.
+        it "sync with an impossible end date returns 400" $ do
+            login
+            request $ do
+                setMethod "POST"
+                setUrl SyncR
+                setRequestBody "{\"end\":\"1999-13-45\",\"metrics\":[\"heartrate\"]}"
+                addRequestHeader ("Content-Type", "application/json")
+            statusIs 400
+
+        it "sync with a malformed start date returns 400" $ do
+            login
+            request $ do
+                setMethod "POST"
+                setUrl SyncR
+                setRequestBody "{\"start\":\"not-a-date\"}"
+                addRequestHeader ("Content-Type", "application/json")
+            statusIs 400
 
     describe "advice" $ withApp $ do
         it "POST /api/advice with no data returns 400" $ do

@@ -45,20 +45,30 @@ dayFormat :: String
 dayFormat = "%Y-%m-%d"
 
 -- | Accept a @YYYY-MM-DD@ string from outside the app (a URL segment, a query
--- parameter). Shape-only, matching the @re.fullmatch@ the Python app used.
+-- parameter, a request body field).
+--
+-- Two checks, for two different reasons. The shape check (the @re.fullmatch@
+-- the Python app used) keeps the text canonical, so that the 'Ord' instance
+-- stays chronological and the DB's string comparisons mean what they say.
+-- The calendar check rejects a well-shaped but impossible date such as
+-- @1999-13-45@, which is what makes 'parseDay' total for every 'DayText' that
+-- entered the app through here.
 parseDayText :: Text -> Maybe DayText
 parseDayText t = case T.splitOn "-" t of
     [y, m, d] | T.length y == 4 && T.length m == 2 && T.length d == 2
-              , all (T.all isDigit) [y, m, d] -> Just (DayText t)
+              , all (T.all isDigit) [y, m, d]
+              , isJust (parseDayMaybe t) -> Just (DayText t)
     _ -> Nothing
 
 -- | Parse to a 'Day' for calendar arithmetic. Every date reaching this point
--- is either read back from the DB or produced by 'formatDay', so a parse
--- failure is a bug rather than untrusted input.
+-- is read back from the DB, produced by 'formatDay', or validated by
+-- 'parseDayText', so a parse failure is a bug rather than untrusted input.
 parseDay :: DayText -> Day
 parseDay (DayText t) =
-    fromMaybe (error ("invalid date: " <> unpack t))
-              (parseTimeM True defaultTimeLocale dayFormat (unpack t))
+    fromMaybe (error ("invalid date: " <> unpack t)) (parseDayMaybe t)
+
+parseDayMaybe :: Text -> Maybe Day
+parseDayMaybe = parseTimeM True defaultTimeLocale dayFormat . unpack
 
 formatDay :: Day -> DayText
 formatDay = DayText . pack . formatTime defaultTimeLocale dayFormat
