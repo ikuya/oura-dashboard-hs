@@ -22,7 +22,10 @@ import Data.Time.Calendar (diffDays)
 import DateText
 import Metric
 import Model (migrateAll)
-import Db hiding (getHeartrate)
+-- Db and Oura both name their sleep-period and heartrate reads the same way;
+-- the Oura ones win here so the client stubs can be written as record updates.
+import Db hiding (getHeartrate, getSleepPeriods)
+import qualified Db
 import Oura
 import Sync
 
@@ -32,8 +35,16 @@ runMem action = runSqlite ":memory:" $ do
 
 -- | A stub client that returns fixed daily/heartrate records and records the
 -- (metric, range) of each call into the given IORef.
-stubClient :: IORef [(Text, DateRange)] -> [A.Value] -> [A.Value] -> OuraClient
-stubClient ref daily heartrate = OuraClient
+stubClient
+    :: IORef [(Text, DateRange)]
+    -> [A.Value] -> [A.Value] -> OuraClient
+stubClient ref daily heartrate = stubClientWithSleep ref daily heartrate []
+
+-- | 'stubClient' plus fixed sleep period records.
+stubClientWithSleep
+    :: IORef [(Text, DateRange)]
+    -> [A.Value] -> [A.Value] -> [A.Value] -> OuraClient
+stubClientWithSleep ref daily heartrate sleepPeriods = OuraClient
     { getDailySleep             = rec "sleep" daily
     , getDailyReadiness         = rec "readiness" daily
     , getDailyActivity          = rec "activity" daily
@@ -43,11 +54,28 @@ stubClient ref daily heartrate = OuraClient
     , getDailyCardiovascularAge = rec "cardiovascular_age" daily
     , getVO2Max                 = rec "vo2_max" daily
     , getHeartrate              = rec "heartrate" heartrate
+    , getSleepPeriods           = rec "sleep_periods" sleepPeriods
     }
   where
     rec metric records range = do
         modifyIORef' ref (++ [(metric, range)])
         return records
+
+-- | A client whose sleep period fetch raises an OuraError.
+erroringSleepPeriodClient :: OuraClient
+erroringSleepPeriodClient = stubClientPure
+    { getSleepPeriods = \_ -> throwIO (OuraError (Just 401) "Unauthorized") }
+
+-- | A minimal sleep period record: the sync only reads id, day, bedtime and
+-- type off it, and stores the rest verbatim.
+sleepPeriodRec :: Text -> Text -> A.Value
+sleepPeriodRec ouraId day = obj
+    [ "id" .= ouraId
+    , "day" .= day
+    , "type" .= ("long_sleep" :: Text)
+    , "bedtime_start" .= (day <> "T01:00:00+09:00")
+    , "bedtime_end" .= (day <> "T08:00:00+09:00")
+    ]
 
 -- | A client whose sleep fetch raises an OuraError.
 erroringSleepClient :: OuraClient
@@ -59,7 +87,8 @@ stubClientPure :: OuraClient
 stubClientPure = OuraClient
     { getDailySleep = c, getDailyReadiness = c, getDailyActivity = c
     , getDailyStress = c, getDailySpo2 = c, getDailyResilience = c
-    , getDailyCardiovascularAge = c, getVO2Max = c, getHeartrate = c }
+    , getDailyCardiovascularAge = c, getVO2Max = c, getHeartrate = c
+    , getSleepPeriods = c }
   where c _ = return []
 
 callsFor :: Text -> [(Text, DateRange)] -> [DateRange]
@@ -271,6 +300,54 @@ spec = do
                         Nothing Nothing (Just [Daily Sleep]) 0
                 readIORef ref
             callsFor "sleep" calls `shouldBe` [DateRange "2024-01-04" "2024-01-10"]
+
+    describe "sync_sleep_periods" $ do
+        it "fetches the whole range in one call and writes the rows" $ do
+            (calls, result) <- runMem $ do
+                ref <- newIORef []
+                res <- runSync "2024-01-31"
+                    (stubClientWithSleep ref [] []
+                        [ sleepPeriodRec "a" "2024-01-30"
+                        , sleepPeriodRec "b" "2024-01-31" ])
+                    Nothing Nothing (Just [SleepPeriodSeries]) 0
+                cs <- readIORef ref
+                return (cs, res)
+            -- Unlike heartrate there is no 30-day window loop.
+            callsFor "sleep_periods" calls
+                `shouldBe` [DateRange defaultStart "2024-01-31"]
+            M.findWithDefault 0 SleepPeriodSeries (syncedCounts result)
+                `shouldBe` 2
+
+        it "stores several periods for one day" $ do
+            rows <- runMem $ do
+                ref <- newIORef []
+                _ <- runSync "2024-01-31"
+                    (stubClientWithSleep ref [] []
+                        [ sleepPeriodRec "a" "2024-01-31"
+                        , sleepPeriodRec "b" "2024-01-31" ])
+                    Nothing Nothing (Just [SleepPeriodSeries]) 0
+                Db.getSleepPeriods (DateRange "2024-01-31" "2024-01-31")
+            length rows `shouldBe` 2
+
+        it "updates the sync log" $ do
+            lastDay <- runMem $ do
+                ref <- newIORef []
+                _ <- runSync "2024-01-31" (stubClientWithSleep ref [] [] [])
+                        Nothing Nothing (Just [SleepPeriodSeries]) 0
+                getLastSyncedDay SleepPeriodSeries
+            lastDay `shouldBe` Just "2024-01-31"
+
+        it "captures API errors" $ do
+            result <- runMem $
+                runSync "2024-01-31" erroringSleepPeriodClient
+                    Nothing Nothing (Just [SleepPeriodSeries]) 0
+            M.member SleepPeriodSeries (syncErrors result) `shouldBe` True
+            M.findWithDefault 0 SleepPeriodSeries (syncedCounts result)
+                `shouldBe` 0
+
+        it "backfills the whole window, like heartrate" $ do
+            ranges <- runMem $ backfillRanges SleepPeriodSeries 7 "2024-01-10"
+            ranges `shouldBe` [DateRange "2024-01-04" "2024-01-10"]
 
 -- helpers ----------------------------------------------------------------
 

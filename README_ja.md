@@ -2,10 +2,11 @@
 
 Oura Ring の生体データをローカルで閲覧するための Web ダッシュボード。
 Oura Ring API v2 から取得したデータをローカルの SQLite に保存し、
-既存の静的フロントエンド (Chart.js) へJSON API 経由で配信します。
+静的フロントエンド (Chart.js) へ JSON API 経由で配信します。
 
-JSON API は Python/Flask 版とバイト単位で互換なので、`static/` 配下のフロントエンドは
-一切変更せずそのまま動作します。
+Python/Flask 版から移植したエンドポイントはバイト単位で互換なので、当時の
+`static/` 配下のフロントエンドはそのまま動作します。以降に追加した機能
+（睡眠段階チャート）は API・フロントとも新規です。
 
 > English version: [README.md](README.md)
 
@@ -13,6 +14,8 @@ JSON API は Python/Flask 版とバイト単位で互換なので、`static/` �
 
 - 総合ダッシュボード: 睡眠・コンディション・アクティビティ・ストレス・血中酸素 (SpO2)・
   体温・心拍数・レジリエンス・VO2 Max・心血管年齢
+- **睡眠段階** — 一晩のヒプノグラム（Deep / Light / REM / Awake を実時刻軸で表示、
+  仮眠はタブで切替）と、選択期間の日別段階時間の積み上げ棒
 - 差分同期（ローカル未保存の日付のみを取得）
 - **アドバイス** — 直近14日間を `claude` CLI で分析し、日本語の健康サマリーを表示。
   結果は DB に保存され、後から閲覧可能
@@ -72,6 +75,10 @@ stack exec oura-dashboard-hs
 
 http://localhost:3000 を開きます（ポートは `YESOD_PORT` で変更可能）。DB のパスは
 既定で `oura.db` です（`YESOD_SQLITE_DATABASE` で変更可能）。
+
+起動時に DB のマイグレーションが走り、以前からの `oura.db` には `sleep_periods`
+テーブルが追加されます。中身は空なので、次の同期でバックフィルされるまで睡眠段階の
+チャートは空のままです（全履歴で約4,000レコード、1分かかりません）。
 
 開発時は `stack exec -- yesod devel` で自動リロードが有効になります。
 
@@ -156,7 +163,7 @@ stack test
 ## ディレクトリ構成
 
 ```
-config/models.persistentmodels   既存 oura.db スキーマに対応する Persistent モデル
+config/models.persistentmodels   Persistent モデル。既存 oura.db スキーマ + sleep_periods
 config/routes.yesodroutes         ルート定義
 config/settings.yml               設定（シークレットは .env から取得）
 src/Db.hs                         SQLite のクエリ/upsert 層 (db.py の移植)
@@ -165,9 +172,9 @@ src/Sync.hs                       差分同期ロジック (sync.py の移植)
 src/Advice.hs                     アドバイスのジョブ状態管理 + claude CLI ワーカー
 src/Logging.hs                    ログ出力先の設定 (LOG_FILE、stdout フォールバック)
 src/Foundation.hs                 アプリ基盤、セッション認証 (bcrypt)
-src/Handler/Api.hs                認証 + metrics/heartrate/sync ハンドラ
+src/Handler/Api.hs                認証 + metrics/heartrate/sleep_periods/sync ハンドラ
 src/Handler/Advice.hs             アドバイス用エンドポイント
 src/Handler/Home.hs               static/index.html の配信
 app/main.hs                       Web サーバのエントリポイント
-static/                           既存フロントエンド (index.html, *.js, style.css)
+static/                           フロントエンド (index.html, *.js, style.css)
 ```

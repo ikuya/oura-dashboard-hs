@@ -51,8 +51,8 @@ header h1 { font-size: 20px; font-weight: 700; flex: 1; }
   color: var(--text);
 }
 
-.hr-mode-btns { display: inline-flex; gap: 4px; margin-left: 8px; vertical-align: middle; }
-.hr-mode-btn {
+.chart-mode-btns { display: inline-flex; gap: 4px; margin-left: 8px; vertical-align: middle; }
+.chart-mode-btn {
   padding: 2px 8px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -62,13 +62,13 @@ header h1 { font-size: 20px; font-weight: 700; flex: 1; }
   font-size: 11px;
   transition: all 0.15s;
 }
-.hr-mode-btn.active,
-.hr-mode-btn:hover {
+.chart-mode-btn.active,
+.chart-mode-btn:hover {
   border-color: var(--accent);
   color: var(--text);
 }
-.hr-day-nav { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; vertical-align: middle; }
-.hr-day-nav button {
+.chart-day-nav { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; vertical-align: middle; }
+.chart-day-nav button {
   padding: 2px 6px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -79,8 +79,9 @@ header h1 { font-size: 20px; font-weight: 700; flex: 1; }
   line-height: 1;
   transition: all 0.15s;
 }
-.hr-day-nav button:hover:not(:disabled) { border-color: var(--accent); }
-.hr-day-nav button:disabled { opacity: 0.3; cursor: default; }
+.chart-day-nav button:hover:not(:disabled) { border-color: var(--accent); }
+.chart-day-nav button:disabled { opacity: 0.3; cursor: default; }
+.chart-note { margin-left: 8px; color: var(--muted); font-size: 12px; }
 
 #sync-btn {
   padding: 6px 16px;

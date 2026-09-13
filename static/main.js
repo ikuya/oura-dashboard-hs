@@ -1,16 +1,22 @@
 import { apiFetch } from "./api.js";
 import { localDateStr, todayStr, daysAgoStr, setStatus } from "./helpers.js";
-import { renderAll } from "./charts.js";
+import { renderAll, renderHypnogram } from "./charts.js";
 
 // Shared across advice IIFEs
 let sharedAdviceRaw = "";
 let refreshAdviceCalendar = null;
+
+// Set by the sleep stage IIFE below; loadData() calls it after each fetch.
+let renderSleepStages = () => {};
 
 // --- State ---
 const state = {
   days: 14,
   charts: {},
   hrMode: "7d",
+  sleepPeriods: [],   // the loaded range, ascending by bedtime_start
+  sleepDay: null,     // selected night; null means "the latest one loaded"
+  sleepPeriodId: null, // selected period within that night; null means the main sleep
   hrDate: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })(),
 };
 
@@ -41,16 +47,19 @@ async function loadData() {
   setStatus("Loading...");
 
   try {
-    const [metricsRes, hrRes] = await Promise.all([
+    const [metricsRes, hrRes, sleepRes] = await Promise.all([
       apiFetch(`/api/metrics?start=${start}&end=${end}`),
       apiFetch(`/api/heartrate?start=${hrStart}&end=${hrEnd}`),
+      apiFetch(`/api/sleep_periods?start=${start}&end=${end}`),
     ]);
 
     if (!metricsRes.ok) throw new Error(`Metrics fetch failed: ${metricsRes.status}`);
     const data = await metricsRes.json();
     const hrData = hrRes.ok ? await hrRes.json() : [];
+    state.sleepPeriods = sleepRes.ok ? await sleepRes.json() : [];
 
     renderAll(data, hrData, state);
+    renderSleepStages();
     setStatus("");
     await loadSyncStatus();
   } catch (e) {
@@ -149,6 +158,112 @@ document.getElementById("hr-next-day").addEventListener("click", () => {
   updateHrDayLabel();
   loadData();
 });
+
+
+// --- Sleep stages ---
+// The whole range arrives in one fetch, so moving between nights is a re-render
+// rather than a request. That ties how far back the arrows reach to the range
+// buttons (7d/14d/...), which is why they disable at the ends.
+(function () {
+  const nav       = document.getElementById("sleep-day-nav");
+  const dayLabel  = document.getElementById("sleep-day-label");
+  const prevBtn   = document.getElementById("sleep-prev-day");
+  const nextBtn   = document.getElementById("sleep-next-day");
+  const tabs      = document.getElementById("sleep-period-tabs");
+  const note      = document.getElementById("sleep-stage-note");
+
+  function loadedDays() {
+    return [...new Set(state.sleepPeriods.map((p) => p.day))].sort();
+  }
+
+  function periodsForDay(day) {
+    return state.sleepPeriods.filter((p) => p.day === day);
+  }
+
+  // The long sleep if the night has one, otherwise its longest period.
+  function mainPeriod(periods) {
+    return periods.find((p) => p.type === "long_sleep")
+      ?? periods.reduce(
+           (a, b) => ((b.time_in_bed ?? 0) > (a.time_in_bed ?? 0) ? b : a),
+           periods[0]);
+  }
+
+  function startTimeLabel(period) {
+    const d = new Date(period.bedtime_start);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+
+  function renderTabs(periods, selected) {
+    // A single period needs no chooser.
+    if (periods.length < 2) {
+      tabs.innerHTML = "";
+      return;
+    }
+    const main = mainPeriod(periods);
+    tabs.innerHTML = periods
+      .map((p) => {
+        const label = p === main ? "Main" : startTimeLabel(p);
+        const cls = p.id === selected.id ? "chart-mode-btn active" : "chart-mode-btn";
+        return `<button class="${cls}" data-period-id="${p.id}">${label}</button>`;
+      })
+      .join("");
+  }
+
+  function render() {
+    const days = loadedDays();
+
+    if (days.length === 0) {
+      nav.classList.add("hidden");
+      tabs.innerHTML = "";
+      note.textContent = "No sleep period data in this range — press Sync.";
+      renderHypnogram(null, state);
+      return;
+    }
+
+    nav.classList.remove("hidden");
+    note.textContent = "";
+
+    // A range change can drop the selected night out of the loaded data.
+    if (!days.includes(state.sleepDay)) {
+      state.sleepDay = days[days.length - 1];
+      state.sleepPeriodId = null;
+    }
+
+    const periods = periodsForDay(state.sleepDay);
+    const period =
+      periods.find((p) => p.id === state.sleepPeriodId) ?? mainPeriod(periods);
+    state.sleepPeriodId = period.id;
+
+    const index = days.indexOf(state.sleepDay);
+    dayLabel.textContent = state.sleepDay;
+    prevBtn.disabled = index === 0;
+    nextBtn.disabled = index === days.length - 1;
+
+    renderTabs(periods, period);
+    renderHypnogram(period, state);
+  }
+
+  function step(delta) {
+    const days = loadedDays();
+    const next = days[days.indexOf(state.sleepDay) + delta];
+    if (next === undefined) return;
+    state.sleepDay = next;
+    state.sleepPeriodId = null;
+    render();
+  }
+
+  prevBtn.addEventListener("click", () => step(-1));
+  nextBtn.addEventListener("click", () => step(1));
+
+  tabs.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-period-id]");
+    if (!btn) return;
+    state.sleepPeriodId = btn.dataset.periodId;
+    render();
+  });
+
+  renderSleepStages = render;
+})();
 
 // --- Advice button ---
 (function () {

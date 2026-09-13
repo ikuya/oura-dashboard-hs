@@ -13,11 +13,13 @@ module Db where
 
 import ClassyPrelude.Yesod
 import qualified Data.Aeson          as A
+import qualified Data.Aeson.Key      as K
 import qualified Data.Aeson.KeyMap   as KM
 import qualified Data.Map.Strict     as M
 import Database.Persist.Sql       (rawExecute, rawSql, Single (..))
 
 import DateText
+import Json                       (jsonLookup, jsonText)
 import Metric
 
 -- | Current UTC time as an ISO-8601 string, matching Python's
@@ -134,6 +136,72 @@ getHeartrate (DateRange start end) = do
     return [ A.object ["timestamp" A..= (ts :: Text), "bpm" A..= (bpm :: Int)]
            | (Single ts, Single bpm) <- rows ]
 
+-- sleep periods ----------------------------------------------------------
+
+-- | The fields of a sleep period the JSON API exposes. A stored record is
+-- ~3KB, most of it the 30-second phase and movement strings that no chart
+-- reads, so reads project it down: 180 days is ~160KB this way against ~900KB
+-- raw. The whole record stays in @data_json@, so widening this list later
+-- needs no re-sync.
+sleepPeriodFields :: [Text]
+sleepPeriodFields =
+    [ "id", "day", "type", "period"
+    , "bedtime_start", "bedtime_end"
+    , "sleep_phase_5_min"
+    , "deep_sleep_duration", "light_sleep_duration", "rem_sleep_duration"
+    , "awake_time", "total_sleep_duration", "time_in_bed"
+    , "efficiency", "latency"
+    ]
+
+-- | Period types the charts ignore: @deleted@ is the tombstone for a sleep the
+-- user removed, and @rest@ is a detection the user rejected as "not asleep"
+-- (Oura leaves it out of the daily scores too).
+hiddenSleepTypes :: [Text]
+hiddenSleepTypes = ["deleted", "rest"]
+
+-- | New in the Haskell port. Skips records without an id or day. Keyed on
+-- the Oura document id rather than the day, because one day holds several
+-- periods (a long sleep plus naps). Returns the number of records written.
+upsertSleepPeriods :: (MonadIO m) => [A.Value] -> ReaderT SqlBackend m Int
+upsertSleepPeriods records = do
+    now <- nowIso
+    let valid = [ (ouraId, day, r)
+                | r <- records
+                , Just ouraId <- [jsonText =<< jsonLookup "id" r]
+                , Just day    <- [jsonText =<< jsonLookup "day" r] ]
+    forM_ valid $ \(ouraId, day, r) ->
+        rawExecute
+            "INSERT OR REPLACE INTO sleep_periods (id, day, bedtime_start, bedtime_end, type, data_json, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            [ toPersistValue ouraId
+            , toPersistValue day
+            , toPersistValue (strOrEmpty "bedtime_start" r)
+            , toPersistValue (strOrEmpty "bedtime_end" r)
+            , toPersistValue (strOrEmpty "type" r)
+            , toPersistValue (decodeUtf8 (toStrict (A.encode r)))
+            , toPersistValue now
+            ]
+    return (length valid)
+  where
+    strOrEmpty k r = fromMaybe "" (jsonText =<< jsonLookup k r)
+
+-- | New in the Haskell port. Ordered by bedtime_start so the periods of one
+-- night come back in the order they happened, whatever their @period@ index says.
+getSleepPeriods
+    :: (MonadIO m) => DateRange -> ReaderT SqlBackend m [A.Value]
+getSleepPeriods (DateRange start end) = do
+    rows <- rawSql
+        ("SELECT data_json FROM sleep_periods WHERE day >= ? AND day <= ? AND type NOT IN ("
+            <> intercalate "," (map (const "?") hiddenSleepTypes)
+            <> ") ORDER BY bedtime_start")
+        ([toPersistValue start, toPersistValue end]
+            ++ map toPersistValue hiddenSleepTypes)
+    return [ projectSleepPeriod (parseDataJson dj) | Single dj <- rows ]
+
+-- | Narrow a stored record to 'sleepPeriodFields'.
+projectSleepPeriod :: A.Object -> A.Value
+projectSleepPeriod =
+    A.Object . KM.filterWithKey (\k _ -> K.toText k `elem` sleepPeriodFields)
+
 -- save_advice
 saveAdvice
     :: (MonadIO m) => DayText -> DayText -> Text -> ReaderT SqlBackend m ()
@@ -187,7 +255,8 @@ getSyncStatus = do
             "SELECT last_synced_day, last_synced_at FROM sync_log WHERE metric = ?"
             [toPersistValue (metricName metric)]
         cnt <- case metric of
-            HeartrateSeries -> countRaw "SELECT COUNT(*) FROM heartrate" []
+            HeartrateSeries   -> countRaw "SELECT COUNT(*) FROM heartrate" []
+            SleepPeriodSeries -> countRaw "SELECT COUNT(*) FROM sleep_periods" []
             Daily daily ->
                 countRaw "SELECT COUNT(*) FROM daily_metrics WHERE metric = ?"
                          [toPersistValue (dailyMetricName daily)]

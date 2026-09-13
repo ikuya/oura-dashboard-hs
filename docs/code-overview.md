@@ -34,7 +34,7 @@ Python/Flask 版 `oura-dashboard` からの移植で、**JSON API はバイト�
 | `src/Json.hs` | 42 | **新規**。`Value` に対する `jsonLookup`/`jsonText`/`jsonDouble`/`jsonInt`/`jsonArray`。Oura API のペイロードと `data_json` を読むための共通ヘルパー |
 | `src/Logging.hs` | 83 | **新規**。`AppLog`（`LogLevel -> Text -> IO ()` を包んだ newtype）でプレーン `IO` から書けるログ出口を明示的に受け渡す。旧版のグローバルロガーを置き換え |
 | `src/Foundation.hs` | 189 | `App` 型、bcrypt によるセッション認証（`requireAuth` → 401 JSON） |
-| `src/Handler/Api.hs` | 150 | ログイン/ログアウト、metrics、heartrate、sync |
+| `src/Handler/Api.hs` | 150 | ログイン/ログアウト、metrics、heartrate、sleep_periods、sync |
 | `src/Handler/Advice.hs` | 111 | advice の POST / ポーリング / 履歴 |
 | `src/DailySync.hs` | 85 | cron 用 CLI。JST タイムスタンプ、7 日分 backfill、エラー時 exit 1 |
 | `src/Application.hs` | 230 | `.env` ロード → 設定 → コネクションプール作成 → migrate → Warp 起動 |
@@ -46,6 +46,9 @@ Python/Flask 版 `oura-dashboard` からの移植で、**JSON API はバイト�
 - `heartrate` — `(timestamp, bpm, day)`。`day` は集計用の非正規化カラム
 - `sync_log` — メトリックごとの `last_synced_at`。増分同期の起点
 - `advice_history` — 生成済みアドバイスの保存先
+- `sleep_periods` — 睡眠期間ドキュメント。1 日に複数行（本睡＋仮眠）あるため、
+  `(metric, day)` ではなく Oura の document id が主キー。`sleep_phase_5_min`
+  を含む生 JSON を `data_json` に保持
 
 ### ルート（`config/routes.yesodroutes`）
 
@@ -54,6 +57,7 @@ Python/Flask 版 `oura-dashboard` からの移植で、**JSON API はバイト�
 /api/login  /api/logout
 /api/metrics  /api/metrics/#Text
 /api/heartrate
+/api/sleep_periods         睡眠段階チャート用（必要フィールドのみ返す）
 /api/sync  /api/sync/status
 /api/advice/history/#Text  （順序上 advice/#Text より先に定義）
 /api/advice                POST でジョブ投入
@@ -74,7 +78,7 @@ flowchart TB
 
     subgraph Server["Warp + Yesod (App)"]
         Auth["Foundation.requireAuth<br/>bcrypt セッション認証"]
-        HApi["Handler/Api.hs<br/>metrics / heartrate / sync"]
+        HApi["Handler/Api.hs<br/>metrics / heartrate<br/>sleep_periods / sync"]
         HAdv["Handler/Advice.hs<br/>advice 投入・ポーリング"]
     end
 

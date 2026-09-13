@@ -38,12 +38,14 @@ data DailyMetric
       -- ^ Reported by @get_sync_status@, but the sync never fetches it.
     deriving (Eq, Ord, Show, Enum, Bounded)
 
--- | A sync/report target: a daily metric, or the heartrate series, which lives
--- in its own table and is fetched in windows rather than per day. (The name
--- avoids a clash with the persistent entity @Heartrate@.)
+-- | A sync/report target: a daily metric, or one of the two series that live
+-- in their own tables rather than one row per day. (The @Series@ suffix avoids
+-- a clash with the persistent entities @Heartrate@ and @SleepPeriod@.)
 data Metric
     = Daily DailyMetric
     | HeartrateSeries
+    | SleepPeriodSeries
+      -- ^ Sleep period documents: several per day, keyed by Oura document id.
     deriving (Eq, Ord, Show)
 
 -- | The name used in the DB @metric@ column, the JSON API and the Oura API.
@@ -60,8 +62,9 @@ dailyMetricName = \case
     VO2Max            -> "vo2_max"
 
 metricName :: Metric -> Text
-metricName (Daily m) = dailyMetricName m
-metricName HeartrateSeries = "heartrate"
+metricName (Daily m)         = dailyMetricName m
+metricName HeartrateSeries   = "heartrate"
+metricName SleepPeriodSeries = "sleep_periods"
 
 parseDailyMetric :: Text -> Maybe DailyMetric
 parseDailyMetric name =
@@ -81,8 +84,9 @@ dashboardMetrics = filter (/= VO2Max) allDailyMetrics
 syncTargets :: [Metric]
 syncTargets =
     map Daily (filter (`notElem` [Temperature, VO2Max]) allDailyMetrics)
-        ++ [HeartrateSeries]
+        ++ [HeartrateSeries, SleepPeriodSeries]
 
 -- | The metrics @get_sync_status@ reports on.
 syncStatusMetrics :: [Metric]
-syncStatusMetrics = map Daily allDailyMetrics ++ [HeartrateSeries]
+syncStatusMetrics =
+    map Daily allDailyMetrics ++ [HeartrateSeries, SleepPeriodSeries]

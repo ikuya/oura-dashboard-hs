@@ -32,3 +32,18 @@ AdviceHistory sql=advice_history
     periodEnd   Text        sql=period_end
     content     Text
     deriving Show
+
+-- Sleep period documents from /v2/usercollection/sleep. Unlike daily_metrics
+-- there can be several rows per day (a long sleep plus naps), so the Oura
+-- document id is the natural key rather than (metric, day). This table is new
+-- in the Haskell port; migrateAll creates it.
+SleepPeriod sql=sleep_periods
+    ouraId       Text  sql=id
+    day          Text
+    bedtimeStart Text  sql=bedtime_start
+    bedtimeEnd   Text  sql=bedtime_end
+    sleepType    Text  sql=type
+    dataJson     Text  sql=data_json
+    syncedAt     Text  sql=synced_at
+    Primary ouraId
+    deriving Show

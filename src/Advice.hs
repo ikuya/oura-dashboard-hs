@@ -41,7 +41,7 @@ import Data.Time.Clock            (diffUTCTime)
 
 import DateText                   (DateRange (..), DayText (..), addDaysT)
 import Db
-import Json                       (jsonText, jsonLookup)
+import Json                       (jsonInt, jsonText, jsonLookup)
 import Metric                     (DailyMetric (..), dailyMetricName,
                                    dashboardMetrics)
 import Logging                    (AppLog (..))
@@ -71,6 +71,7 @@ adviceSystemPrompt :: Text
 adviceSystemPrompt = intercalate "\n"
     [ "あなたはOura Ringの健康データを解析する専門家アシスタントです。"
     , "ユーザーから過去14日間のOura Ringデータ（睡眠、準備度、活動量、ストレス、血中酸素濃度、体温偏差、回復力、VO2 Max、心血管年齢）が提供されます。"
+    , "`sleep_periods` は各日の睡眠段階の実時間（秒）です。同じ日の本睡と仮眠を合算しています。"
     , ""
     , "## 役割"
     , "1. データを客観的に分析し、現在の健康状態を簡潔に要約する"
@@ -120,17 +121,45 @@ extractKeyFields metric row =
             VO2Max            -> []
     in A.Object (KM.fromList (base ++ extra))
 
+-- | The stage durations of a sleep period, in seconds.
+sleepDurationFields :: [Text]
+sleepDurationFields =
+    [ "deep_sleep_duration", "light_sleep_duration", "rem_sleep_duration"
+    , "awake_time", "total_sleep_duration", "time_in_bed" ]
+
+-- | One row per day, summing the stage durations of that day's periods. A day
+-- can hold several (a long sleep plus naps) and the prompt wants the night as
+-- a whole. The 5-minute phase timeline is deliberately left out: the charts
+-- read it, but as prompt text it is thousands of tokens the model cannot use.
+sleepStageTotals :: [A.Value] -> [A.Value]
+sleepStageTotals periods =
+    [ A.Object $ KM.fromList $ ("day", A.toJSON day)
+        : [ (K.fromText f, A.toJSON (sum (map (seconds f) rows)))
+          | f <- sleepDurationFields ]
+    | (day, rows) <- M.toAscList byDay ]
+  where
+    byDay = M.fromListWith (++)
+        [ (day, [r])
+        | r <- periods, Just day <- [jsonText =<< jsonLookup "day" r] ]
+    seconds f r = fromMaybe (0 :: Int) (jsonInt =<< jsonLookup f r)
+
 -- | Build the 14-day health payload (period + per-metric key fields).
 buildHealthPayload :: (MonadIO m) => DayText -> Int -> ReaderT SqlBackend m A.Value
 buildHealthPayload today days = do
     let start = addDaysT (negate (fromIntegral days - 1)) today
-    bulk <- getDailyMetricsBulk dashboardMetrics (DateRange start today)
+        range = DateRange start today
+    bulk <- getDailyMetricsBulk dashboardMetrics range
+    sleepPeriods <- getSleepPeriods range
     let metricsObj = KM.fromList
             [ ( K.fromText (dailyMetricName m)
               , A.toJSON (map (extractKeyFields m) (M.findWithDefault [] m bulk)) )
             | m <- dashboardMetrics ]
         period = A.object ["start" A..= start, "end" A..= today, "days" A..= days]
-    return $ A.object ["period" A..= period, "metrics" A..= A.Object metricsObj]
+    return $ A.object
+        [ "period"        A..= period
+        , "metrics"       A..= A.Object metricsObj
+        , "sleep_periods" A..= sleepStageTotals sleepPeriods
+        ]
 
 -- | Build the prompt string (system prompt + JSON code block).
 buildAdvicePrompt :: A.Value -> Text

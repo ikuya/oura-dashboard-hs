@@ -1,4 +1,4 @@
-import { scoreColor, scoreClass } from "./helpers.js";
+import { scoreColor, scoreClass, formatDuration } from "./helpers.js";
 
 Chart.defaults.color = "#6b7280";
 Chart.defaults.borderColor = "#2a2d3a";
@@ -56,6 +56,134 @@ export function updateCard(prefix, records, valueField = "score", formatter = (v
   el.textContent = formatter(v);
   el.className = `card-value ${scoreClass(v)}`;
   if (dateEl) dateEl.textContent = last.day || "";
+}
+
+
+// --- Sleep stages ---
+
+// The Oura phase codes double as the y values of the hypnogram, which puts
+// Deep at the bottom and Awake at the top, the way the Oura app draws it.
+export const SLEEP_STAGES = [
+  { code: 1, key: "deep",  label: "Deep",  color: "#4338ca", field: "deep_sleep_duration" },
+  { code: 2, key: "light", label: "Light", color: "#38bdf8", field: "light_sleep_duration" },
+  { code: 3, key: "rem",   label: "REM",   color: "#a78bfa", field: "rem_sleep_duration" },
+  { code: 4, key: "awake", label: "Awake", color: "#fbbf24", field: "awake_time" },
+];
+
+const STAGE_BY_CODE = Object.fromEntries(SLEEP_STAGES.map((s) => [s.code, s]));
+const EPOCH_MS = 5 * 60 * 1000;
+
+// `sleep_phase_5_min` is one digit per 5 minutes starting at bedtime_start.
+// A stepped line holds each point's level until the next one, so a closing
+// point is appended or the final epoch would not be drawn.
+export function hypnogramPoints(period) {
+  const phases = period?.sleep_phase_5_min;
+  if (!phases) return [];
+  const start = new Date(period.bedtime_start).getTime();
+  const points = [];
+  for (let i = 0; i < phases.length; i++) {
+    const code = Number(phases[i]);
+    if (STAGE_BY_CODE[code]) {
+      points.push({ x: new Date(start + i * EPOCH_MS).toISOString(), y: code });
+    }
+  }
+  if (points.length > 0) {
+    points.push({
+      x: new Date(start + phases.length * EPOCH_MS).toISOString(),
+      y: points[points.length - 1].y,
+    });
+  }
+  return points;
+}
+
+export function renderHypnogram(period, state) {
+  makeChart("chart-sleep-stages", state.charts, {
+    type: "line",
+    data: {
+      datasets: [{
+        label: "Sleep stage",
+        data: hypnogramPoints(period),
+        stepped: "after",
+        pointRadius: 0,
+        borderWidth: 2,
+        borderColor: "#6b7280",
+        segment: {
+          borderColor: (ctx) => STAGE_BY_CODE[ctx.p0.parsed.y]?.color ?? "#6b7280",
+        },
+        fill: false,
+      }],
+    },
+    options: {
+      responsive: true,
+      scales: {
+        x: TIME_SCALE_MINUTE,
+        // Ticks have to land on whole phase codes for the callback to name
+        // them, so the range is padded outwards rather than set to 0.5..4.5.
+        y: {
+          min: 0,
+          max: 5,
+          grid: { color: "#2a2d3a" },
+          ticks: { stepSize: 1, callback: (v) => STAGE_BY_CODE[v]?.label ?? "" },
+        },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: { label: (ctx) => STAGE_BY_CODE[ctx.parsed.y]?.label ?? "" },
+        },
+      },
+      animation: false,
+    },
+  });
+}
+
+// One bar per day. A day can hold several periods (a long sleep plus naps) and
+// the bar is the night as a whole, so they are summed; the full bar height is
+// then time_in_bed. These totals come from the duration fields rather than the
+// 5-minute phase string, so they differ from the hypnogram by a few percent.
+export function renderStageDurations(periods, state) {
+  const byDay = new Map();
+  for (const p of periods) {
+    const row = byDay.get(p.day) ?? {};
+    for (const s of SLEEP_STAGES) row[s.key] = (row[s.key] ?? 0) + (p[s.field] ?? 0);
+    byDay.set(p.day, row);
+  }
+  const days = [...byDay.keys()].sort();
+
+  makeChart("chart-sleep-stage-duration", state.charts, {
+    type: "bar",
+    data: {
+      datasets: SLEEP_STAGES.map((s) => ({
+        label: s.label,
+        data: days.map((d) => ({ x: d, y: byDay.get(d)[s.key] / 3600 })),
+        backgroundColor: s.color + "cc",
+        borderColor: s.color,
+        borderWidth: 1,
+      })),
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        x: { ...TIME_SCALE, stacked: true },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          grid: { color: "#2a2d3a" },
+          ticks: { callback: (v) => `${v}h` },
+        },
+      },
+      plugins: {
+        legend: { position: "top" },
+        tooltip: {
+          callbacks: {
+            label: (ctx) =>
+              `${ctx.dataset.label}: ${formatDuration(ctx.parsed.y * 3600)}`,
+          },
+        },
+      },
+    },
+  });
 }
 
 export function renderAll(data, hrData, state) {
@@ -142,6 +270,8 @@ export function renderAll(data, hrData, state) {
       plugins: { legend: { display: true, position: "top" } },
     },
   });
+
+  renderStageDurations(state.sleepPeriods ?? [], state);
 
   makeChart("chart-stress", state.charts, {
     type: "bar",

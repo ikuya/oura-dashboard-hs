@@ -173,6 +173,73 @@ spec = do
             (field "day" =<< headMay dates) `shouldBe` Just (A.String "2024-01-14")
             (field "day" =<< headMay (drop 1 dates)) `shouldBe` Just (A.String "2024-01-20")
 
+    describe "upsert_sleep_periods / get_sleep_periods" $ do
+        it "inserts records" $ do
+            rows <- runMem $ do
+                _ <- upsertSleepPeriods
+                    [ sleepPeriod "a" "2024-01-01" "2023-12-31T23:30:00+09:00" "long_sleep"
+                    , sleepPeriod "b" "2024-01-01" "2024-01-01T14:00:00+09:00" "sleep" ]
+                getSleepPeriods (DateRange "2024-01-01" "2024-01-01")
+            map (field "id") rows `shouldBe` [Just (A.String "a"), Just (A.String "b")]
+
+        it "replaces a record with the same id" $ do
+            rows <- runMem $ do
+                _ <- upsertSleepPeriods
+                    [ sleepPeriod "a" "2024-01-01" "2023-12-31T23:30:00+09:00" "long_sleep" ]
+                _ <- upsertSleepPeriods
+                    [ (sleepPeriod "a" "2024-01-01" "2023-12-31T23:30:00+09:00" "long_sleep")
+                        `withField` ("time_in_bed", A.Number 999) ]
+                getSleepPeriods (DateRange "2024-01-01" "2024-01-01")
+            length rows `shouldBe` 1
+            field "time_in_bed" (headEx rows) `shouldBe` Just (A.Number 999)
+
+        it "skips records without an id or day" $ do
+            n <- runMem $ upsertSleepPeriods
+                [ sleepPeriod "a" "2024-01-01" "2023-12-31T23:30:00+09:00" "long_sleep"
+                , A.object ["day" .= ("2024-01-01" :: Text)]      -- no id
+                , A.object ["id" .= ("c" :: Text)]                -- no day
+                ]
+            n `shouldBe` 1
+
+        it "hides deleted and rest periods" $ do
+            rows <- runMem $ do
+                _ <- upsertSleepPeriods
+                    [ sleepPeriod "a" "2024-01-01" "2024-01-01T01:00:00+09:00" "long_sleep"
+                    , sleepPeriod "b" "2024-01-01" "2024-01-01T02:00:00+09:00" "rest"
+                    , sleepPeriod "c" "2024-01-01" "2024-01-01T03:00:00+09:00" "deleted"
+                    , sleepPeriod "d" "2024-01-01" "2024-01-01T04:00:00+09:00" "late_nap" ]
+                getSleepPeriods (DateRange "2024-01-01" "2024-01-01")
+            map (field "id") rows `shouldBe` [Just (A.String "a"), Just (A.String "d")]
+
+        it "orders by bedtime_start, not by insertion" $ do
+            rows <- runMem $ do
+                _ <- upsertSleepPeriods
+                    [ sleepPeriod "late" "2024-01-01" "2024-01-01T14:00:00+09:00" "sleep"
+                    , sleepPeriod "early" "2024-01-01" "2023-12-31T23:30:00+09:00" "long_sleep" ]
+                getSleepPeriods (DateRange "2024-01-01" "2024-01-01")
+            map (field "id") rows
+                `shouldBe` [Just (A.String "early"), Just (A.String "late")]
+
+        it "respects the date range" $ do
+            rows <- runMem $ do
+                _ <- upsertSleepPeriods
+                    [ sleepPeriod "a" "2024-01-01" "2024-01-01T01:00:00+09:00" "long_sleep"
+                    , sleepPeriod "b" "2024-01-05" "2024-01-05T01:00:00+09:00" "long_sleep"
+                    , sleepPeriod "c" "2024-01-10" "2024-01-10T01:00:00+09:00" "long_sleep" ]
+                getSleepPeriods (DateRange "2024-01-02" "2024-01-09")
+            map (field "id") rows `shouldBe` [Just (A.String "b")]
+
+        it "drops the fields the charts never read" $ do
+            rows <- runMem $ do
+                _ <- upsertSleepPeriods
+                    [ (sleepPeriod "a" "2024-01-01" "2024-01-01T01:00:00+09:00" "long_sleep")
+                        `withField` ("sleep_phase_30_sec", A.String "4444")
+                        `withField` ("movement_30_sec", A.String "1111") ]
+                getSleepPeriods (DateRange "2024-01-01" "2024-01-01")
+            field "sleep_phase_5_min" (headEx rows) `shouldBe` Just (A.String "4123")
+            field "sleep_phase_30_sec" (headEx rows) `shouldBe` Nothing
+            field "movement_30_sec" (headEx rows) `shouldBe` Nothing
+
     describe "get_sync_status" $ do
         it "reports all metrics" $ do
             status <- runMem getSyncStatus
@@ -181,7 +248,7 @@ spec = do
                     sort (KM.keys o) `shouldBe` sort
                         [ "sleep", "readiness", "activity", "stress", "spo2"
                         , "resilience", "cardiovascular_age", "vo2_max"
-                        , "temperature", "heartrate" ]
+                        , "temperature", "heartrate", "sleep_periods" ]
                 _ -> expectationFailure "status is not an object"
 
         it "counts rows" $ do
@@ -194,6 +261,30 @@ spec = do
                 sleepLast = field "sleep" status >>= field "last_day"
             sleepRows `shouldBe` Just (A.Number 2)
             sleepLast `shouldBe` Just (A.String "2024-01-02")
+
+-- | A sleep period record shaped like the Oura response, with the fields the
+-- API projects populated.
+sleepPeriod :: Text -> Text -> Text -> Text -> A.Value
+sleepPeriod ouraId day bedtimeStart sleepType = A.object
+    [ "id" .= ouraId
+    , "day" .= day
+    , "type" .= sleepType
+    , "period" .= (1 :: Int)
+    , "bedtime_start" .= bedtimeStart
+    , "bedtime_end" .= bedtimeStart
+    , "sleep_phase_5_min" .= ("4123" :: Text)
+    , "deep_sleep_duration" .= (300 :: Int)
+    , "light_sleep_duration" .= (300 :: Int)
+    , "rem_sleep_duration" .= (300 :: Int)
+    , "awake_time" .= (300 :: Int)
+    , "total_sleep_duration" .= (900 :: Int)
+    , "time_in_bed" .= (1200 :: Int)
+    ]
+
+-- | Add or override one field of a record.
+withField :: A.Value -> (Text, A.Value) -> A.Value
+withField (A.Object o) (k, v) = A.Object (KM.insert (K.fromText k) v o)
+withField other _             = other
 
 -- | Insert an advice_history row with an explicit saved_at (for grouping tests).
 insertAdviceRaw

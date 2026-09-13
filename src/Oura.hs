@@ -47,6 +47,9 @@ data OuraClient = OuraClient
     , getDailyCardiovascularAge :: DateRange -> IO [Value]
     , getVO2Max                 :: DateRange -> IO [Value]
     , getHeartrate              :: DateRange -> IO [Value]
+    , getSleepPeriods           :: DateRange -> IO [Value]
+      -- ^ Sleep period documents. Dated like the daily endpoints, but several
+      -- records can share a @day@ (a long sleep plus naps).
     }
 
 baseUrl :: Text
@@ -67,6 +70,7 @@ realClient appLog token = OuraClient
     , getDailyResilience        = getDated "/v2/usercollection/daily_resilience"
     , getDailyCardiovascularAge = getDated "/v2/usercollection/daily_cardiovascular_age"
     , getVO2Max                 = getDated "/v2/usercollection/vO2_max"
+    , getSleepPeriods           = getDated "/v2/usercollection/sleep"
     , getHeartrate              = \range -> getPaged
         "/v2/usercollection/heartrate"
         [ ("start_datetime", dateToDatetime (rangeStart range) False)

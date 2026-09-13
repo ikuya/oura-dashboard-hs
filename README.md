@@ -1,11 +1,12 @@
 # oura-dashboard-hs
 
-A local web dashboard for Oura Ring biometric data. Fetches data from 
-the Oura Ring API v2 into a local SQLite database and serves an existing 
-static frontend (Chart.js) over a JSON API.
+A local web dashboard for Oura Ring biometric data. Fetches data from
+the Oura Ring API v2 into a local SQLite database and serves a static
+frontend (Chart.js) over a JSON API.
 
-The JSON API is byte-compatible with the Python/Flask original, so the same
-`static/` frontend runs unchanged.
+The endpoints ported from the Python/Flask original stay byte-compatible with
+it, so the `static/` frontend it shipped with keeps working against them. What
+has been added since — the sleep stage charts — is new on both sides.
 
 > 日本語版: [README_ja.md](README_ja.md)
 
@@ -13,6 +14,9 @@ The JSON API is byte-compatible with the Python/Flask original, so the same
 
 - Overview dashboard: Sleep, Readiness, Activity, Stress, SpO2, Temperature,
   Heart Rate, Resilience, VO2 Max, Cardiovascular Age
+- **Sleep stages** — a hypnogram of one night (Deep / Light / REM / Awake
+  against the clock, with naps selectable) plus per-day stage totals across the
+  selected range
 - Incremental sync (only fetches dates not yet stored locally)
 - **Advice** — analyzes the last 14 days with the `claude` CLI and shows a
   Japanese health summary; saved to the DB and browsable
@@ -72,6 +76,11 @@ stack exec oura-dashboard-hs
 
 Then open http://localhost:3000 (override with `YESOD_PORT`). The database path
 defaults to `oura.db` (override with `YESOD_SQLITE_DATABASE`).
+
+Startup migrates the database, which on an older `oura.db` adds the
+`sleep_periods` table. It starts empty, so the sleep stage charts stay blank
+until the next sync backfills them (the full history is ~4,000 records and takes
+well under a minute).
 
 During development, `stack exec -- yesod devel` gives auto-reload.
 
@@ -157,7 +166,7 @@ stack test
 ## Project layout
 
 ```
-config/models.persistentmodels   Persistent models mapped onto the existing oura.db schema
+config/models.persistentmodels   Persistent models: the existing oura.db schema, plus sleep_periods
 config/routes.yesodroutes         Route definitions
 config/settings.yml               Settings (secrets sourced from .env)
 src/Db.hs                         SQLite query/upsert layer (ported from db.py)
@@ -166,9 +175,9 @@ src/Sync.hs                       Incremental sync logic (ported from sync.py)
 src/Advice.hs                     Advice job state + claude CLI worker
 src/Logging.hs                    Log destination setup (LOG_FILE, stdout fallback)
 src/Foundation.hs                 App foundation, session auth (bcrypt)
-src/Handler/Api.hs                Auth + metrics/heartrate/sync handlers
+src/Handler/Api.hs                Auth + metrics/heartrate/sleep_periods/sync handlers
 src/Handler/Advice.hs             Advice endpoints
 src/Handler/Home.hs               Serves static/index.html
 app/main.hs                       Web server entry point
-static/                           Existing frontend (index.html, *.js, style.css)
+static/                           Frontend (index.html, *.js, style.css)
 ```

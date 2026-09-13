@@ -28,7 +28,7 @@ syncStubClient = OuraClient
         [ A.object ["day" .= ("2024-01-10" :: Text), "score" .= (80 :: Int)] ]
     , getDailyReadiness = e, getDailyActivity = e, getDailyStress = e
     , getDailySpo2 = e, getDailyResilience = e, getDailyCardiovascularAge = e
-    , getVO2Max = e, getHeartrate = e }
+    , getVO2Max = e, getHeartrate = e, getSleepPeriods = e }
   where e _ = return []
 
 spec :: Spec
@@ -124,6 +124,35 @@ spec = do
                 >> addGetParam "start" "2024-01-01" >> addGetParam "end" "2024-01-31"
             statusIs 200
             bodyContains "\"bpm\":65"
+
+    describe "sleep periods" $ withApp $ do
+        it "returns periods in the range" $ do
+            login
+            insertSleepPeriod "a" "2024-01-10" "2024-01-09T23:30:00+09:00" "long_sleep"
+            request $ setMethod "GET" >> setUrl SleepPeriodsR
+                >> addGetParam "start" "2024-01-01" >> addGetParam "end" "2024-01-31"
+            statusIs 200
+            bodyContains "\"sleep_phase_5_min\":\"4123\""
+
+        it "excludes periods outside the range" $ do
+            login
+            insertSleepPeriod "a" "2024-02-10" "2024-02-09T23:30:00+09:00" "long_sleep"
+            request $ setMethod "GET" >> setUrl SleepPeriodsR
+                >> addGetParam "start" "2024-01-01" >> addGetParam "end" "2024-01-31"
+            statusIs 200
+            bodyContains "[]"
+
+        it "excludes rest periods" $ do
+            login
+            insertSleepPeriod "a" "2024-01-10" "2024-01-10T14:00:00+09:00" "rest"
+            request $ setMethod "GET" >> setUrl SleepPeriodsR
+                >> addGetParam "start" "2024-01-01" >> addGetParam "end" "2024-01-31"
+            statusIs 200
+            bodyContains "[]"
+
+        it "requires auth" $ do
+            get SleepPeriodsR
+            statusIs 401
 
     describe "sync status" $ withApp $ do
         it "reports sleep and heartrate" $ do
@@ -229,6 +258,21 @@ insertMetric metric day score dataJson = runDB $ rawExecute
     "INSERT OR REPLACE INTO daily_metrics (metric, day, score, data_json, synced_at) VALUES (?, ?, ?, ?, ?)"
     [ toPersistValue metric, toPersistValue day, toPersistValue score
     , toPersistValue dataJson, toPersistValue ("2024-01-10T00:00:00+00:00" :: Text) ]
+
+-- | Insert a sleep period whose data_json carries the fields the API projects.
+insertSleepPeriod :: Text -> Text -> Text -> Text -> YesodExample App ()
+insertSleepPeriod ouraId day bedtimeStart sleepType = runDB $ rawExecute
+    "INSERT OR REPLACE INTO sleep_periods (id, day, bedtime_start, bedtime_end, type, data_json, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    [ toPersistValue ouraId, toPersistValue day
+    , toPersistValue bedtimeStart, toPersistValue bedtimeStart
+    , toPersistValue sleepType
+    , toPersistValue (decodeUtf8 (toStrict (A.encode (A.object
+        [ "id" .= ouraId, "day" .= day, "type" .= sleepType
+        , "bedtime_start" .= bedtimeStart, "bedtime_end" .= bedtimeStart
+        , "sleep_phase_5_min" .= ("4123" :: Text)
+        , "sleep_phase_30_sec" .= ("44444444" :: Text)
+        ]))))
+    , toPersistValue ("2024-01-10T00:00:00+00:00" :: Text) ]
 
 insertHr :: Text -> Int -> Text -> YesodExample App ()
 insertHr ts bpm day = runDB $ rawExecute

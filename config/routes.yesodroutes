@@ -16,6 +16,7 @@
 /api/metrics          MetricsR      GET
 /api/metrics/#Text    MetricR       GET
 /api/heartrate        HeartrateR    GET
+/api/sleep_periods    SleepPeriodsR GET
 
 -- Sync
 /api/sync/status SyncStatusR GET

@@ -90,6 +90,18 @@ getHeartrateR = do
     rows <- runDB $ Db.getHeartrate range
     returnJson rows
 
+-- Sleep periods ----------------------------------------------------------
+
+-- | Sleep period documents in the range, narrowed to the fields the sleep
+-- stage charts read. Several records can share a @day@, so unlike the daily
+-- metrics this is a flat array rather than a map.
+getSleepPeriodsR :: Handler Value
+getSleepPeriodsR = do
+    requireAuth
+    range <- parseRange
+    rows <- runDB $ Db.getSleepPeriods range
+    returnJson rows
+
 -- Sync -------------------------------------------------------------------
 
 getSyncStatusR :: Handler Value
@@ -127,14 +139,13 @@ syncResultToJson r = A.object
     , "errors" A..= M.mapKeys metricName (Sync.syncErrors r)
     ]
 
--- | A metric name from the request body. Heartrate is a sync target but not
--- a daily metric, so it needs its own case.
+-- | A metric name from the request body. The two series are sync targets but
+-- not daily metrics, so they are matched by name before falling back.
 parseMetricName :: Value -> Maybe Metric
 parseMetricName v = do
     name <- jsonText v
-    if name == metricName HeartrateSeries
-        then Just HeartrateSeries
-        else Daily <$> parseDailyMetric name
+    let series = [ (metricName m, m) | m <- [HeartrateSeries, SleepPeriodSeries] ]
+    lookup name series <|> (Daily <$> parseDailyMetric name)
 
 -- | The request body decoded as JSON, or an empty object when it is missing,
 -- not JSON, or malformed (Python's @request.get_json(silent=True) or {}@).

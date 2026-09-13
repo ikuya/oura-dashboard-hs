@@ -78,6 +78,31 @@
     </div>
   </div>
 
+  <!-- Sleep stages: one night, then the whole range -->
+  <div class="chart-row">
+    <div class="chart-card">
+      <h2>Sleep Stages
+        <span style="font-weight:400;text-transform:none;letter-spacing:0;">
+          <span id="sleep-day-nav" class="chart-day-nav">
+            <button id="sleep-prev-day">&#8249;</button>
+            <span id="sleep-day-label"></span>
+            <button id="sleep-next-day">&#8250;</button>
+          </span>
+          <span id="sleep-period-tabs" class="chart-mode-btns"></span>
+          <span id="sleep-stage-note" class="chart-note"></span>
+        </span>
+      </h2>
+      <canvas id="chart-sleep-stages"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-row">
+    <div class="chart-card">
+      <h2>Sleep Stage Duration</h2>
+      <canvas id="chart-sleep-stage-duration"></canvas>
+    </div>
+  </div>
+
   <!-- Stress + SpO2 -->
   <div class="chart-row two-col">
     <div class="chart-card">
@@ -108,11 +133,11 @@
       <h2>Heart Rate
         <span style="font-weight:400;text-transform:none;letter-spacing:0;">
           <span id="hr-range-note">(last 7 days)</span>
-          <span class="hr-mode-btns">
-            <button id="hr-btn-7d" class="hr-mode-btn active">7d</button>
-            <button id="hr-btn-1d" class="hr-mode-btn">1d</button>
+          <span class="chart-mode-btns">
+            <button id="hr-btn-7d" class="chart-mode-btn active">7d</button>
+            <button id="hr-btn-1d" class="chart-mode-btn">1d</button>
           </span>
-          <span id="hr-day-nav" class="hr-day-nav hidden">
+          <span id="hr-day-nav" class="chart-day-nav hidden">
             <button id="hr-prev-day">&#8249;</button>
             <span id="hr-day-label"></span>
             <button id="hr-next-day">&#8250;</button>

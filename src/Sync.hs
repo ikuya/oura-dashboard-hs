@@ -18,6 +18,7 @@ module Sync
     , extractScore
     , findMissingRange
     , syncDailyMetric
+    , syncSleepPeriods
     , backfillRanges
     , runSync
     , SyncResult (..)
@@ -38,7 +39,7 @@ import DateText                   (DateRange (..), DayText (..), addDaysT,
 import Db
 import Json                       (jsonDouble, jsonInt, jsonLookup, jsonText)
 import Metric
-import Oura hiding (getHeartrate)
+import Oura hiding (getHeartrate, getSleepPeriods)
 import qualified Oura
 
 defaultStart :: DayText
@@ -149,10 +150,26 @@ fetchFn client = \case
     Temperature       -> Nothing
     VO2Max            -> Nothing
 
+-- sleep periods ----------------------------------------------------------
+
+-- | Fetch and upsert sleep period documents. Unlike the daily metrics this
+-- writes several rows per day (a long sleep plus naps), keyed on the Oura
+-- document id, and there is no score to extract.
+syncSleepPeriods
+    :: (MonadIO m, MonadLogger m)
+    => OuraClient -> DateRange
+    -> ReaderT SqlBackend m Int
+syncSleepPeriods client range@(DateRange start end) = do
+    records <- liftIO $ Oura.getSleepPeriods client range
+    count <- upsertSleepPeriods records
+    $logInfo ("sync sleep_periods " <> unDayText start <> ".." <> unDayText end
+        <> ": " <> tshow count <> " rows")
+    return count
+
 -- _backfill_ranges -------------------------------------------------------
 
 -- | Contiguous date ranges needed to fill gaps in the backfill window.
--- Heartrate always returns the whole window. Daily metrics treat days with
+-- The two series always return the whole window. Daily metrics treat days with
 -- a null score (or missing rows, or today) as gaps.
 backfillRanges
     :: (MonadIO m)
@@ -161,7 +178,10 @@ backfillRanges
 backfillRanges metric backfillDays today = do
     let windowStart = addDaysT (negate (fromIntegral backfillDays - 1)) today
     case metric of
-        HeartrateSeries -> return [DateRange windowStart today]
+        -- Neither series has a per-day "is this day filled in?" notion in the
+        -- way daily_metrics does, so both just re-fetch the whole window.
+        HeartrateSeries   -> return [DateRange windowStart today]
+        SleepPeriodSeries -> return [DateRange windowStart today]
         Daily daily -> do
             rows <- rawSql
                 "SELECT day FROM daily_metrics WHERE metric = ? AND day >= ? AND day <= ? AND score IS NOT NULL"
@@ -262,12 +282,21 @@ runSync today client requestedStart requestedEnd mmetrics backfillDays = do
 
     syncRange = \case
         HeartrateSeries   -> syncHeartrateRange
-        Daily daily -> syncDailyRange daily
+        SleepPeriodSeries -> syncSleepPeriodRange
+        Daily daily       -> syncDailyRange daily
 
     syncDailyRange metric range =
         rangeResult <$> tryOura (Daily metric) (do
             rows <- syncDailyMetric client metric range
             updateSyncLog (Daily metric) (rangeEnd range)
+            return rows)
+
+    -- The sleep endpoint has no window limit (the whole history comes back in
+    -- one paginated range), so unlike heartrate this is a single fetch.
+    syncSleepPeriodRange range =
+        rangeResult <$> tryOura SleepPeriodSeries (do
+            rows <- syncSleepPeriods client range
+            updateSyncLog SleepPeriodSeries (rangeEnd range)
             return rows)
 
     -- Heartrate: each fetch range is walked backwards in <=30-day windows.
