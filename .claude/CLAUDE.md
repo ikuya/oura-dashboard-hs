@@ -13,4 +13,9 @@
   `APP_PASSWORD` に bcrypt ハッシュを渡す。`.env` の値はハッシュなのでログインには使えない:
   `python3 -c "import bcrypt; print(bcrypt.hashpw(b'PASS', bcrypt.gensalt(rounds=10)).decode())"`
 - 動作確認は本番 `oura.db` を避け、`YESOD_SQLITE_DATABASE` に複製を指定する
+- `static/*.js` の変更はブラウザの通常リロードでは反映されない（素の ES モジュール
+  ＋ yesod-static のキャッシュヘッダ）。`index.html` だけ更新されるため「枠は出るが
+  中身が空」というサーバ側の不具合に見える。`Ctrl+Shift+R` が必要。配信内容そのものの
+  確認は `fetch(url, {cache:"reload"})` が速い。フロント変更を伴う作業は、完了報告にも
+  ハードリロードを明記する
 
