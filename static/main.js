@@ -170,6 +170,7 @@ document.getElementById("hr-next-day").addEventListener("click", () => {
   const prevBtn   = document.getElementById("sleep-prev-day");
   const nextBtn   = document.getElementById("sleep-next-day");
   const tabs      = document.getElementById("sleep-period-tabs");
+  const rangeLabel = document.getElementById("sleep-period-range");
   const note      = document.getElementById("sleep-stage-note");
 
   function loadedDays() {
@@ -191,6 +192,20 @@ document.getElementById("hr-next-day").addEventListener("click", () => {
   function startTimeLabel(period) {
     const d = new Date(period.bedtime_start);
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+
+  // The chart's own tooltip only shows a point's time on hover, so the first
+  // and last timestamps of the selected period are duplicated here as text
+  // that stays visible.
+  function fullClockLabel(d) {
+    return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} `
+      + `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+
+  function periodRangeLabel(period) {
+    const start = fullClockLabel(new Date(period.bedtime_start));
+    const end = fullClockLabel(new Date(period.bedtime_end));
+    return `${start} → ${end}`;
   }
 
   function renderTabs(periods, selected) {
@@ -215,6 +230,7 @@ document.getElementById("hr-next-day").addEventListener("click", () => {
     if (days.length === 0) {
       nav.classList.add("hidden");
       tabs.innerHTML = "";
+      rangeLabel.textContent = "";
       note.textContent = "No sleep period data in this range — press Sync.";
       renderHypnogram(null, state);
       return;
@@ -240,6 +256,7 @@ document.getElementById("hr-next-day").addEventListener("click", () => {
     nextBtn.disabled = index === days.length - 1;
 
     renderTabs(periods, period);
+    rangeLabel.textContent = periodRangeLabel(period);
     renderHypnogram(period, state);
   }
 
