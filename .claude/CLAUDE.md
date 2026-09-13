@@ -10,8 +10,9 @@
 - ビルドエラーの抽出: `stack build 2>&1 | grep -E '^\S+\.hs:[0-9]+:[0-9]+: error' -A 12`
   （`tail` だと Cabal のフッタと警告に埋もれて見えない）
 - 手動起動には `SECRET_KEY` が必須（未設定だと起動時 error）。認証が要る動作確認では
-  `APP_PASSWORD` に bcrypt ハッシュを渡す。`.env` の値はハッシュなのでログインには使えない:
-  `python3 -c "import bcrypt; print(bcrypt.hashpw(b'PASS', bcrypt.gensalt(rounds=10)).decode())"`
+  `APP_PASSWORD` に bcrypt ハッシュを渡す。`.env` の値はハッシュなのでログインには使えない。
+  検証用途なら `config/test-settings.yml` のハッシュ（平文は `test-password`）を流用するのが
+  速い。新規生成は README.md の手順で（python の `bcrypt` モジュールは入っていない）
 - 動作確認は本番 `oura.db` を避け、`YESOD_SQLITE_DATABASE` に複製を指定する
 - `static/*.js` の変更はブラウザの通常リロードでは反映されない（素の ES モジュール
   ＋ yesod-static のキャッシュヘッダ）。`index.html` だけ更新されるため「枠は出るが

@@ -45,13 +45,19 @@ Set `APP_PASSWORD` to a **bcrypt** hash of your password. Generate one with the
 bundled dependency:
 
 ```bash
-stack runghc --package bcrypt -- - <<'EOF'
+cat > /tmp/genhash.hs <<'EOF'
 import Crypto.BCrypt
 import Data.ByteString.Char8 (pack, unpack)
-main = hashPasswordUsingPolicy slowerBcryptHashingPolicy (pack "your_password")
-       >>= putStrLn . maybe "FAIL" unpack
+import System.Environment (getArgs)
+main = do
+    [pw] <- getArgs
+    hashPasswordUsingPolicy slowerBcryptHashingPolicy (pack pw)
+        >>= putStrLn . maybe "FAIL" unpack
 EOF
+stack runghc --package bcrypt -- /tmp/genhash.hs 'your_password'
 ```
+
+(`runghc` needs a script file; it does not read the program from stdin.)
 
 Then add it to `.env` **in single quotes** (bcrypt hashes contain `$`, which the
 dotenv parser would otherwise treat as variable interpolation and crash at

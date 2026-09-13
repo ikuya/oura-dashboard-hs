@@ -44,13 +44,19 @@ echo "SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" >
 生成できます:
 
 ```bash
-stack runghc --package bcrypt -- - <<'EOF'
+cat > /tmp/genhash.hs <<'EOF'
 import Crypto.BCrypt
 import Data.ByteString.Char8 (pack, unpack)
-main = hashPasswordUsingPolicy slowerBcryptHashingPolicy (pack "your_password")
-       >>= putStrLn . maybe "FAIL" unpack
+import System.Environment (getArgs)
+main = do
+    [pw] <- getArgs
+    hashPasswordUsingPolicy slowerBcryptHashingPolicy (pack pw)
+        >>= putStrLn . maybe "FAIL" unpack
 EOF
+stack runghc --package bcrypt -- /tmp/genhash.hs 'your_password'
 ```
+
+（`runghc` はスクリプトファイルを要求します。標準入力からプログラムを読みません）
 
 生成した値は **シングルクォートで囲んで** `.env` に追記してください。bcrypt ハッシュには
 `$` が含まれるため、クォートしないと dotenv パーサが変数展開とみなし、起動時に
