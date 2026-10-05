@@ -1,0 +1,22 @@
+# systemd unit for the web server. Install to /etc/systemd/system/; see README.
+[Unit]
+Description=Oura dashboard (Yesod web server)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=if
+# .env, config/, static/ and oura.db are all resolved relative to the cwd.
+WorkingDirectory=/home/if/work/oura-dashboard-hs
+# stack/ghc come from ghcup; the claude CLI used by Advice lives in ~/.local/bin.
+Environment=PATH=/home/if/.ghcup/bin:/home/if/.local/bin:/usr/local/bin:/usr/bin:/bin
+# LOG_FILE / ACCESS_LOG_FILE are deliberately unset so logs go to stdout and
+# land in the journal. `stack exec` (rather than the .stack-work binary path,
+# which changes with the resolver) picks up a fresh `stack build` on restart.
+ExecStart=/home/if/.ghcup/bin/stack exec oura-dashboard-hs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

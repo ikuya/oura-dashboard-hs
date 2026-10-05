@@ -92,6 +92,34 @@ well under a minute).
 
 During development, `stack exec -- yesod devel` gives auto-reload.
 
+## Running as a systemd service
+
+`systemd/oura-dashboard.service` runs the web server as a system unit (as user
+`if`, from this directory), restarts it if it crashes, and starts it at boot.
+It replaces the old `@reboot run_oura_dashboard.sh` cron entry; the script stays
+for manual runs. Edit `User=` and the paths if your user or checkout differ.
+
+```bash
+stack build
+crontab -e                          # remove the @reboot run_oura_dashboard.sh line, if any
+pkill -f 'bin/oura-dashboard-hs'    # stop a nohup-started instance (frees port 3000)
+sudo cp systemd/oura-dashboard.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now oura-dashboard
+```
+
+The unit runs `stack exec`, so after a `stack build` a restart picks up the new
+binary. Its `PATH` includes `~/.local/bin` so Advice can find the `claude` CLI.
+
+```bash
+systemctl status oura-dashboard
+sudo systemctl restart oura-dashboard
+journalctl -u oura-dashboard -f     # app and request logs
+```
+
+The unit leaves `LOG_FILE` / `ACCESS_LOG_FILE` unset, so all logging goes to the
+journal rather than `log/`.
+
 ## Daily Automatic Sync
 
 The `oura-daily-sync` executable runs an incremental sync and backfills missing

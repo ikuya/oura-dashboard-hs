@@ -90,6 +90,36 @@ http://localhost:3000 を開きます（ポートは `YESOD_PORT` で変更可�
 
 開発時は `stack exec -- yesod devel` で自動リロードが有効になります。
 
+## systemd で常駐させる
+
+`systemd/oura-dashboard.service` は Web サーバーをシステムユニットとして
+（ユーザー `if`、このディレクトリで）起動し、クラッシュ時の再起動とブート時の
+自動起動を行います。従来の cron の `@reboot run_oura_dashboard.sh` を置き換える
+もので、スクリプトは手動起動用に残しています。ユーザー名やパスが異なる場合は
+`User=` と各パスを書き換えてください。
+
+```bash
+stack build
+crontab -e                          # @reboot run_oura_dashboard.sh の行があれば削除
+pkill -f 'bin/oura-dashboard-hs'    # nohup で起動中のプロセスを停止（ポート 3000 を空ける）
+sudo cp systemd/oura-dashboard.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now oura-dashboard
+```
+
+ユニットは `stack exec` で起動するため、`stack build` 後は再起動するだけで新しい
+バイナリが使われます。Advice が `claude` CLI を見つけられるよう、`PATH` に
+`~/.local/bin` を含めています。
+
+```bash
+systemctl status oura-dashboard
+sudo systemctl restart oura-dashboard
+journalctl -u oura-dashboard -f     # アプリログとリクエストログ
+```
+
+ユニットでは `LOG_FILE` / `ACCESS_LOG_FILE` を設定しないため、ログはすべて
+`log/` ではなく journal に出力されます。
+
 ## 日次自動同期
 
 `oura-daily-sync` 実行ファイルは差分同期を行い、直近7日以内の欠損日を埋めます:
