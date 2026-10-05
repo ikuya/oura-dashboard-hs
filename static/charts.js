@@ -191,7 +191,7 @@ export function renderStageDurations(periods, state) {
 const BEDTIME_COLOR = "#6366f1";
 const WAKE_COLOR = "#fbbf24";
 const NAP_COLOR = "#9ca3af";
-const WEEKDAYS_JA = ["日", "月", "火", "水", "木", "金", "土"];
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 // Hours since the noon before, on the wall clock where the period was recorded:
 // 23:30 -> 11.5, 07:00 the next morning -> 19. The offset in the timestamp is
@@ -239,14 +239,14 @@ export function bedtimeWakeRows(periods) {
 
 function bedtimeWakeTooltip(row) {
   const lines = row.main ? [
-    `ベッド  ${clockLabel(row.bed)} – ${clockLabel(row.wake)}  (${formatDuration(row.main.time_in_bed)})`,
-    `入眠  ${clockLabel(row.onset)}  (寝付き ${row.main.latency == null ? "—" : formatDuration(row.main.latency)})`,
+    `In bed  ${clockLabel(row.bed)} – ${clockLabel(row.wake)}  (${formatDuration(row.main.time_in_bed)})`,
+    `Asleep  ${clockLabel(row.onset)}  (latency ${row.main.latency == null ? "—" : formatDuration(row.main.latency)})`,
   ] : [];
   for (const n of row.naps) {
     const s = wallClockHours(n.bedtime_start);
     const e = wallClockHours(n.bedtime_end);
     if (s == null || e == null) continue;
-    lines.push(`昼寝  ${clockLabel(s)} – ${clockLabel(e)}  (${formatDuration(n.time_in_bed)})`);
+    lines.push(`Nap  ${clockLabel(s)} – ${clockLabel(e)}  (${formatDuration(n.time_in_bed)})`);
   }
   return lines;
 }
@@ -272,7 +272,7 @@ export function renderBedtimeWake(periods, state) {
   const wakeMedian = median(rows.map((r) => r.wake));
   const medianLine = (label, value, color) => ({
     type: "line",
-    label: `${label} 中央値 ${clockLabel(value)}`,
+    label: `${label} median ${clockLabel(value)}`,
     data: [{ x: first, y: value }, { x: last, y: value }],
     borderColor: color,
     borderDash: [6, 4],
@@ -286,7 +286,7 @@ export function renderBedtimeWake(periods, state) {
     data: {
       datasets: [
         {
-          label: "ベッド",
+          label: "In bed",
           data: rows.map((r) => ({ x: r.day, y: [r.bed, r.wake] })),
           backgroundColor: BEDTIME_COLOR + "59",
           borderSkipped: false,
@@ -294,7 +294,7 @@ export function renderBedtimeWake(periods, state) {
           order: 2,
         },
         {
-          label: "睡眠",
+          label: "Asleep",
           data: rows.map((r) => ({ x: r.day, y: [r.onset, r.wake] })),
           backgroundColor: BEDTIME_COLOR,
           borderSkipped: false,
@@ -303,7 +303,7 @@ export function renderBedtimeWake(periods, state) {
         },
         {
           type: "scatter",
-          label: "昼寝",
+          label: "Nap",
           data: allRows.filter((r) => r.naps.length > 0).map((r) => ({ x: r.day, y: min })),
           backgroundColor: NAP_COLOR,
           pointRadius: 4,
@@ -311,8 +311,8 @@ export function renderBedtimeWake(periods, state) {
           order: 0,
         },
         ...(onsetMedian == null ? [] : [
-          medianLine("入眠", onsetMedian, BEDTIME_COLOR),
-          medianLine("起床", wakeMedian, WAKE_COLOR),
+          medianLine("Sleep onset", onsetMedian, BEDTIME_COLOR),
+          medianLine("Wake", wakeMedian, WAKE_COLOR),
         ]),
       ],
     },
@@ -341,7 +341,7 @@ export function renderBedtimeWake(periods, state) {
           callbacks: {
             title: (items) => {
               const day = items[0]?.raw?.x;
-              return day ? `${day} (${WEEKDAYS_JA[new Date(`${day}T00:00:00Z`).getUTCDay()]})` : "";
+              return day ? `${day} (${WEEKDAYS[new Date(`${day}T00:00:00Z`).getUTCDay()]})` : "";
             },
             label: (ctx) => bedtimeWakeTooltip(byDay.get(ctx.raw.x)),
           },
