@@ -23,12 +23,42 @@ export const TIME_SCALE_MINUTE = {
   ticks: { maxTicksLimit: 10 },
 };
 
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// "2026-10-05 (Mon)". TIME_SCALE parses days as UTC midnight, so the UTC date
+// is the day itself. The weekday is spelled out here rather than through
+// tooltipFormat, where luxon would localise it to the browser's language.
+function dayTooltipTitle(items) {
+  const x = items[0]?.parsed?.x;
+  if (x == null) return "";
+  const d = new Date(x);
+  return `${d.toISOString().slice(0, 10)} (${WEEKDAYS[d.getUTCDay()]})`;
+}
+
+// Gives every daily chart the weekday in its tooltip title, unless the chart
+// sets a title of its own.
+function withDayTooltipTitle(config) {
+  if (config.options?.scales?.x?.time?.unit !== "day") return config;
+  const plugins = config.options.plugins ?? {};
+  const tooltip = plugins.tooltip ?? {};
+  return {
+    ...config,
+    options: {
+      ...config.options,
+      plugins: {
+        ...plugins,
+        tooltip: { ...tooltip, callbacks: { title: dayTooltipTitle, ...tooltip.callbacks } },
+      },
+    },
+  };
+}
+
 export function makeChart(id, charts, config) {
   if (charts[id]) {
     charts[id].destroy();
   }
   const ctx = document.getElementById(id).getContext("2d");
-  charts[id] = new Chart(ctx, config);
+  charts[id] = new Chart(ctx, withDayTooltipTitle(config));
   return charts[id];
 }
 
@@ -191,7 +221,6 @@ export function renderStageDurations(periods, state) {
 const BEDTIME_COLOR = "#6366f1";
 const WAKE_COLOR = "#fbbf24";
 const NAP_COLOR = "#9ca3af";
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 // Hours since the noon before, on the wall clock where the period was recorded:
 // 23:30 -> 11.5, 07:00 the next morning -> 19. The offset in the timestamp is
@@ -339,10 +368,6 @@ export function renderBedtimeWake(periods, state) {
           filter: (item, _i, items) =>
             item === items.find((it) => byDay.has(it.raw?.x) && it.dataset.type !== "line"),
           callbacks: {
-            title: (items) => {
-              const day = items[0]?.raw?.x;
-              return day ? `${day} (${WEEKDAYS[new Date(`${day}T00:00:00Z`).getUTCDay()]})` : "";
-            },
             label: (ctx) => bedtimeWakeTooltip(byDay.get(ctx.raw.x)),
           },
         },
