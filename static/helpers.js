@@ -39,3 +39,15 @@ export function formatDuration(seconds) {
   const m = Math.round((seconds % 3600) / 60);
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
+
+// The long sleep if the night has one, otherwise its longest period (the first
+// of equals). A late nap is never the night's sleep, so a day holding nothing
+// else has no main period and this returns undefined. Mirrors mainSleepPeriod
+// in src/Advice.hs.
+export function mainPeriod(periods) {
+  const candidates = periods.filter((p) => p.type !== "late_nap");
+  return candidates.find((p) => p.type === "long_sleep")
+    ?? candidates.reduce(
+         (a, b) => ((b.time_in_bed ?? 0) > (a.time_in_bed ?? 0) ? b : a),
+         candidates[0]);
+}

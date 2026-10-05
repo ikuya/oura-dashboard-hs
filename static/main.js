@@ -1,5 +1,5 @@
 import { apiFetch } from "./api.js";
-import { localDateStr, todayStr, daysAgoStr, setStatus } from "./helpers.js";
+import { localDateStr, todayStr, daysAgoStr, setStatus, mainPeriod } from "./helpers.js";
 import { renderAll, renderHypnogram } from "./charts.js";
 
 // Shared across advice IIFEs
@@ -181,14 +181,6 @@ document.getElementById("hr-next-day").addEventListener("click", () => {
     return state.sleepPeriods.filter((p) => p.day === day);
   }
 
-  // The long sleep if the night has one, otherwise its longest period.
-  function mainPeriod(periods) {
-    return periods.find((p) => p.type === "long_sleep")
-      ?? periods.reduce(
-           (a, b) => ((b.time_in_bed ?? 0) > (a.time_in_bed ?? 0) ? b : a),
-           periods[0]);
-  }
-
   function startTimeLabel(period) {
     const d = new Date(period.bedtime_start);
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -247,7 +239,8 @@ document.getElementById("hr-next-day").addEventListener("click", () => {
 
     const periods = periodsForDay(state.sleepDay);
     const period =
-      periods.find((p) => p.id === state.sleepPeriodId) ?? mainPeriod(periods);
+      periods.find((p) => p.id === state.sleepPeriodId)
+      ?? mainPeriod(periods) ?? periods[0];
     state.sleepPeriodId = period.id;
 
     const index = days.indexOf(state.sleepDay);

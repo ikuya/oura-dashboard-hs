@@ -1,4 +1,4 @@
-import { scoreColor, scoreClass, formatDuration } from "./helpers.js";
+import { scoreColor, scoreClass, formatDuration, mainPeriod } from "./helpers.js";
 
 Chart.defaults.color = "#6b7280";
 Chart.defaults.borderColor = "#2a2d3a";
@@ -186,6 +186,171 @@ export function renderStageDurations(periods, state) {
   });
 }
 
+// --- Bedtime / wake ---
+
+const BEDTIME_COLOR = "#6366f1";
+const WAKE_COLOR = "#fbbf24";
+const NAP_COLOR = "#9ca3af";
+const WEEKDAYS_JA = ["日", "月", "火", "水", "木", "金", "土"];
+
+// Hours since the noon before, on the wall clock where the period was recorded:
+// 23:30 -> 11.5, 07:00 the next morning -> 19. The offset in the timestamp is
+// deliberately ignored rather than converted to the browser's zone, so a night
+// abroad reads as the local time it was slept. Matches clockAt in src/Advice.hs.
+function wallClockHours(iso) {
+  const m = /T(\d{2}):(\d{2})/.exec(iso ?? "");
+  if (!m) return null;
+  const h = Number(m[1]) + Number(m[2]) / 60;
+  return h < 12 ? h + 24 : h;
+}
+
+function clockLabel(hours) {
+  const minutes = Math.round(hours * 60);
+  return `${String(Math.floor(minutes / 60) % 24).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+function median(values) {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// One row per day: the main period as the bar, the other periods as naps.
+// `main` is null on a day with naps only, or whose main period's timestamps
+// do not parse; such a day gets a nap marker but no bar.
+export function bedtimeWakeRows(periods) {
+  const byDay = new Map();
+  for (const p of periods) byDay.set(p.day, [...(byDay.get(p.day) ?? []), p]);
+  return [...byDay.keys()].sort().map((day) => {
+    const all = byDay.get(day);
+    const main = mainPeriod(all) ?? null;
+    const naps = all.filter((p) => p !== main);
+    const bed = wallClockHours(main?.bedtime_start);
+    let wake = wallClockHours(main?.bedtime_end);
+    if (bed == null || wake == null) return { day, main: null, naps };
+    // Both ends are hours since noon, so the end can only come out earlier
+    // when the period crosses noon; it then belongs to the next day.
+    if (wake < bed) wake += 24;
+    const onset = Math.min(bed + (main.latency ?? 0) / 3600, wake);
+    return { day, main, bed, onset, wake, naps };
+  });
+}
+
+function bedtimeWakeTooltip(row) {
+  const lines = row.main ? [
+    `ベッド  ${clockLabel(row.bed)} – ${clockLabel(row.wake)}  (${formatDuration(row.main.time_in_bed)})`,
+    `入眠  ${clockLabel(row.onset)}  (寝付き ${row.main.latency == null ? "—" : formatDuration(row.main.latency)})`,
+  ] : [];
+  for (const n of row.naps) {
+    const s = wallClockHours(n.bedtime_start);
+    const e = wallClockHours(n.bedtime_end);
+    if (s == null || e == null) continue;
+    lines.push(`昼寝  ${clockLabel(s)} – ${clockLabel(e)}  (${formatDuration(n.time_in_bed)})`);
+  }
+  return lines;
+}
+
+export function renderBedtimeWake(periods, state) {
+  const allRows = bedtimeWakeRows(periods);
+  const byDay = new Map(allRows.map((r) => [r.day, r]));
+  const rows = allRows.filter((r) => r.main);
+
+  // The axis is fitted to the main periods only; naps are marked on the top
+  // edge instead of at their time, or an afternoon nap would stretch the axis
+  // and squash every night.
+  // The bounds are snapped to the tick step, or Chart.js adds an off-step tick
+  // at each end that crowds its neighbour.
+  const lo = rows.length ? Math.min(...rows.map((r) => r.bed)) - 0.5 : 21;
+  const hi = rows.length ? Math.max(...rows.map((r) => r.wake)) + 0.5 : 33;
+  const step = hi - lo > 12 ? 2 : 1;
+  const min = Math.floor(lo / step) * step;
+  const max = Math.ceil(hi / step) * step;
+  const first = rows[0]?.day;
+  const last = rows[rows.length - 1]?.day;
+  const onsetMedian = median(rows.map((r) => r.onset));
+  const wakeMedian = median(rows.map((r) => r.wake));
+  const medianLine = (label, value, color) => ({
+    type: "line",
+    label: `${label} 中央値 ${clockLabel(value)}`,
+    data: [{ x: first, y: value }, { x: last, y: value }],
+    borderColor: color,
+    borderDash: [6, 4],
+    borderWidth: 1.5,
+    pointRadius: 0,
+    order: 0,
+  });
+
+  makeChart("chart-bedtime-wake", state.charts, {
+    type: "bar",
+    data: {
+      datasets: [
+        {
+          label: "ベッド",
+          data: rows.map((r) => ({ x: r.day, y: [r.bed, r.wake] })),
+          backgroundColor: BEDTIME_COLOR + "59",
+          borderSkipped: false,
+          grouped: false,
+          order: 2,
+        },
+        {
+          label: "睡眠",
+          data: rows.map((r) => ({ x: r.day, y: [r.onset, r.wake] })),
+          backgroundColor: BEDTIME_COLOR,
+          borderSkipped: false,
+          grouped: false,
+          order: 1,
+        },
+        {
+          type: "scatter",
+          label: "昼寝",
+          data: allRows.filter((r) => r.naps.length > 0).map((r) => ({ x: r.day, y: min })),
+          backgroundColor: NAP_COLOR,
+          pointRadius: 4,
+          clip: false,
+          order: 0,
+        },
+        ...(onsetMedian == null ? [] : [
+          medianLine("入眠", onsetMedian, BEDTIME_COLOR),
+          medianLine("起床", wakeMedian, WAKE_COLOR),
+        ]),
+      ],
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: "x", intersect: false },
+      scales: {
+        x: TIME_SCALE,
+        // Reversed so time runs downwards: the night at the top, the morning below.
+        y: {
+          reverse: true,
+          min,
+          max,
+          grid: { color: "#2a2d3a" },
+          ticks: { stepSize: step, callback: (v) => clockLabel(v) },
+        },
+      },
+      plugins: {
+        // `order` sets the drawing order, which the legend would follow too.
+        legend: { position: "top", labels: { sort: (a, b) => a.datasetIndex - b.datasetIndex } },
+        tooltip: {
+          // Every dataset at the hovered day says the same thing, so the bar
+          // (or, failing that, the nap marker) speaks for the whole day.
+          filter: (item, _i, items) =>
+            item === items.find((it) => byDay.has(it.raw?.x) && it.dataset.type !== "line"),
+          callbacks: {
+            title: (items) => {
+              const day = items[0]?.raw?.x;
+              return day ? `${day} (${WEEKDAYS_JA[new Date(`${day}T00:00:00Z`).getUTCDay()]})` : "";
+            },
+            label: (ctx) => bedtimeWakeTooltip(byDay.get(ctx.raw.x)),
+          },
+        },
+      },
+    },
+  });
+}
+
 export function renderAll(data, hrData, state) {
   const { sleep = [], readiness = [], activity = [], stress = [],
           spo2 = [], temperature = [], resilience = [],
@@ -272,6 +437,7 @@ export function renderAll(data, hrData, state) {
   });
 
   renderStageDurations(state.sleepPeriods ?? [], state);
+  renderBedtimeWake(state.sleepPeriods ?? [], state);
 
   makeChart("chart-stress", state.charts, {
     type: "bar",

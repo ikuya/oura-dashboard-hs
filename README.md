@@ -17,6 +17,8 @@ has been added since — the sleep stage charts — is new on both sides.
 - **Sleep stages** — a hypnogram of one night (Deep / Light / REM / Awake
   against the clock, with naps selectable) plus per-day stage totals across the
   selected range
+- **Bedtime / wake** — per-day bars from bedtime to wake on a clock axis, with
+  sleep onset, nap markers and range medians
 - Incremental sync (only fetches dates not yet stored locally)
 - **Advice** — analyzes the last 14 days with the `claude` CLI and shows a
   Japanese health summary; saved to the DB and browsable

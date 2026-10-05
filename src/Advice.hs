@@ -38,6 +38,8 @@ import qualified Data.UUID         as UUID
 import qualified Data.UUID.V4      as UUID
 import Control.Monad.Logger       (LogLevel (..))
 import Data.Time.Clock            (diffUTCTime)
+import Data.Time.Format.ISO8601   (iso8601ParseM)
+import Data.Time.LocalTime        (addLocalTime, zonedTimeToLocalTime)
 
 import DateText                   (DateRange (..), DayText (..), addDaysT)
 import Db
@@ -72,6 +74,7 @@ adviceSystemPrompt = intercalate "\n"
     [ "あなたはOura Ringの健康データを解析する専門家アシスタントです。"
     , "ユーザーから過去14日間のOura Ringデータ（睡眠、準備度、活動量、ストレス、血中酸素濃度、体温偏差、回復力、VO2 Max、心血管年齢）が提供されます。"
     , "`sleep_periods` は各日の睡眠段階の実時間（秒）です。同じ日の本睡と仮眠を合算しています。"
+    , "`bedtime_start`（就床）・`sleep_onset`（入眠）・`bedtime_end`（起床）はその日の本睡の時刻（記録地の時刻、HH:MM）です。`naps` は仮眠の回数、`nap_time_in_bed` はその合計時間（秒）です。"
     , ""
     , "## 役割"
     , "1. データを客観的に分析し、現在の健康状態を簡潔に要約する"
@@ -131,17 +134,62 @@ sleepDurationFields =
 -- can hold several (a long sleep plus naps) and the prompt wants the night as
 -- a whole. The 5-minute phase timeline is deliberately left out: the charts
 -- read it, but as prompt text it is thousands of tokens the model cannot use.
+--
+-- The bedtime / onset / wake clock times come from the main period alone, and
+-- the other periods are reported as naps, the same split the Bedtime / Wake
+-- chart draws.
 sleepStageTotals :: [A.Value] -> [A.Value]
 sleepStageTotals periods =
     [ A.Object $ KM.fromList $ ("day", A.toJSON day)
-        : [ (K.fromText f, A.toJSON (sum (map (seconds f) rows)))
+        : [ (K.fromText f, A.toJSON (sum (map (periodSeconds f) rows)))
           | f <- sleepDurationFields ]
+        ++ sleepTimes rows
     | (day, rows) <- M.toAscList byDay ]
   where
-    byDay = M.fromListWith (++)
+    byDay = M.fromListWith (flip (++))
         [ (day, [r])
         | r <- periods, Just day <- [jsonText =<< jsonLookup "day" r] ]
-    seconds f r = fromMaybe (0 :: Int) (jsonInt =<< jsonLookup f r)
+
+-- | The main period's clock times plus the nap count and their time in bed.
+sleepTimes :: [A.Value] -> [(A.Key, A.Value)]
+sleepTimes rows =
+    [ ("bedtime_start", A.toJSON (clockAt 0 =<< start))
+    , ("sleep_onset",   A.toJSON (clockAt latency =<< start))
+    , ("bedtime_end",   A.toJSON (clockAt 0 =<< str "bedtime_end"))
+    , ("naps",            A.toJSON (length naps))
+    , ("nap_time_in_bed", A.toJSON (sum (map (periodSeconds "time_in_bed") naps)))
+    ]
+  where
+    primary = mainSleepPeriod rows
+    naps = filter ((/= primary) . Just) rows
+    str k = jsonText =<< jsonLookup k =<< primary
+    start = str "bedtime_start"
+    latency = maybe 0 (periodSeconds "latency") primary
+
+-- | The long sleep if the day has one, otherwise its longest period by time in
+-- bed (the first of equals). A late nap is never the night's sleep, so a day
+-- holding nothing else has no main period. Mirrors @mainPeriod@ in
+-- static/helpers.js.
+mainSleepPeriod :: [A.Value] -> Maybe A.Value
+mainSleepPeriod rows =
+    find ((== Just "long_sleep") . sleepType) candidates
+        <|> headMay (sortOn (Down . periodSeconds "time_in_bed") candidates)
+  where
+    sleepType = jsonText <=< jsonLookup "type"
+    candidates = filter ((/= Just "late_nap") . sleepType) rows
+
+-- | "HH:MM" on the wall clock where the period was recorded, @offset@ seconds
+-- after the given ISO 8601 timestamp. The timestamp's own UTC offset is kept
+-- rather than converting to the server's zone, so a night abroad reads as the
+-- local time it was slept.
+clockAt :: Int -> Text -> Maybe Text
+clockAt offset ts =
+    pack . formatTime defaultTimeLocale "%H:%M"
+         . addLocalTime (fromIntegral offset) . zonedTimeToLocalTime
+        <$> iso8601ParseM (unpack ts)
+
+periodSeconds :: Text -> A.Value -> Int
+periodSeconds f r = fromMaybe 0 (jsonInt =<< jsonLookup f r)
 
 -- | Build the 14-day health payload (period + per-metric key fields).
 buildHealthPayload :: (MonadIO m) => DayText -> Int -> ReaderT SqlBackend m A.Value

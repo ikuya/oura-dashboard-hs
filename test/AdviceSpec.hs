@@ -84,3 +84,47 @@ spec = do
                     [ periodOfType "rest" "a" "2024-01-10" 3000 14000 7000 3600 ]
                 buildHealthPayload "2024-01-10" 14
             field "sleep_periods" payload `shouldBe` Just (A.Array mempty)
+
+    describe "build_health_payload sleep times" $ do
+        let timed sleepType ouraId start end tib latency = A.object
+                [ "id" .= (ouraId :: Text), "day" .= ("2024-01-10" :: Text)
+                , "type" .= (sleepType :: Text)
+                , "bedtime_start" .= (start :: Text), "bedtime_end" .= (end :: Text)
+                , "time_in_bed" .= (tib :: Int), "latency" .= (latency :: Int) ]
+            row periods = do
+                payload <- runMem $ do
+                    _ <- upsertSleepPeriods periods
+                    buildHealthPayload "2024-01-10" 14
+                case field "sleep_periods" payload of
+                    Just (A.Array v) | [r] <- toList v -> return r
+                    _ -> expectationFailure "expected one sleep_periods row" >> return A.Null
+
+        it "takes the clock times from the long sleep and counts the rest as naps" $ do
+            r <- row
+                [ timed "long_sleep" "a" "2024-01-09T23:41:00+09:00" "2024-01-10T07:05:00+09:00" 26640 1140
+                , timed "late_nap" "b" "2024-01-10T14:05:00+09:00" "2024-01-10T14:40:00+09:00" 2100 300 ]
+            field "bedtime_start" r `shouldBe` Just (A.String "23:41")
+            field "sleep_onset" r `shouldBe` Just (A.String "00:00")
+            field "bedtime_end" r `shouldBe` Just (A.String "07:05")
+            field "naps" r `shouldBe` Just (A.Number 1)
+            field "nap_time_in_bed" r `shouldBe` Just (A.Number 2100)
+
+        it "keeps the wall clock of the recorded offset" $ do
+            r <- row [ timed "long_sleep" "a" "2024-01-09T22:30:00.000-05:00" "2024-01-10T06:00:00.000-05:00" 27000 0 ]
+            field "bedtime_start" r `shouldBe` Just (A.String "22:30")
+            field "bedtime_end" r `shouldBe` Just (A.String "06:00")
+
+        it "falls back to the longest period without a long sleep" $ do
+            r <- row
+                [ timed "sleep" "a" "2024-01-10T01:00:00+09:00" "2024-01-10T02:00:00+09:00" 3600 0
+                , timed "sleep" "b" "2024-01-10T03:00:00+09:00" "2024-01-10T08:00:00+09:00" 18000 600 ]
+            field "bedtime_start" r `shouldBe` Just (A.String "03:00")
+            field "sleep_onset" r `shouldBe` Just (A.String "03:10")
+            field "naps" r `shouldBe` Just (A.Number 1)
+            field "nap_time_in_bed" r `shouldBe` Just (A.Number 3600)
+
+        it "leaves the clock times empty on a day with a late nap only" $ do
+            r <- row [ timed "late_nap" "a" "2024-01-09T18:27:00+09:00" "2024-01-09T19:20:00+09:00" 3180 0 ]
+            field "bedtime_start" r `shouldBe` Just A.Null
+            field "bedtime_end" r `shouldBe` Just A.Null
+            field "naps" r `shouldBe` Just (A.Number 1)
