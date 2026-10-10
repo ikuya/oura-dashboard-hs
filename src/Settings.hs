@@ -69,6 +69,9 @@ data AppSettings = AppSettings
     -- ^ Session signing key. Required; validated in makeFoundation.
     , appPassword               :: Text
     -- ^ bcrypt hash of the dashboard password. Empty if unset.
+    , appSecureCookies          :: Bool
+    -- ^ Mark the session cookie Secure and send HSTS. Only for HTTPS: over
+    -- plain HTTP the browser would never send the cookie back.
 
     , appLogFile                :: Maybe FilePath
     -- ^ Log destination. @Nothing@ (the default) logs to stdout; a path logs
@@ -109,6 +112,7 @@ instance FromJSON AppSettings where
         appOuraToken              <- o .:? "oura-token"   .!= ""
         appSecretKey              <- o .:? "secret-key"   .!= ""
         appPassword               <- o .:? "app-password" .!= ""
+        appSecureCookies          <- o .:? "secure-cookies" .!= False
 
         -- An unset LOG_FILE arrives as "", which means stdout.
         logFile                   <- o .:? "log-file"     .!= ""

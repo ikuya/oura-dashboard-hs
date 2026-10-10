@@ -21,9 +21,9 @@ import System.Log.FastLogger (LoggerSet)
 import Control.Monad.Logger (LogSource)
 import Crypto.BCrypt        (validatePassword)
 import qualified Data.Aeson as A
-import Network.HTTP.Types   (status401)
 import Oura                 (OuraClient)
 import Advice               (AdviceJobs)
+import LoginThrottle        (LoginThrottle)
 import Logging              (AppLog)
 import qualified Yesod.Core.Unsafe as Unsafe
 
@@ -51,6 +51,8 @@ data App = App
     , appPlainLogger :: AppLog
       -- ^ Log destination for the code that runs outside 'MonadLogger': the
       -- Oura client's IO fetches and the forked advice worker.
+    , appLoginThrottle :: LoginThrottle
+      -- ^ Recent failed logins per IP, for brute-force protection.
     }
 
 -- This is where we define all of the routes in our application. For a full
@@ -86,14 +88,38 @@ instance Yesod App where
             Just root -> root
 
     -- Store session data on the client in encrypted cookies,
-    -- session idle timeout is 7 days (personal use)
+    -- session idle timeout is 7 days (personal use). SameSite=Lax keeps the
+    -- cookie off cross-site POSTs; Secure is opt-in until the site has HTTPS.
     makeSessionBackend :: App -> IO (Maybe SessionBackend)
-    makeSessionBackend _ = Just <$> defaultClientSessionBackend
-        (7 * 24 * 60)    -- timeout in minutes (7 days)
-        "config/client_session_key.aes"
+    makeSessionBackend app = secureOnly $ laxSameSiteSessions $
+        Just <$> defaultClientSessionBackend
+            (7 * 24 * 60)    -- timeout in minutes (7 days)
+            "config/client_session_key.aes"
+      where
+        secureOnly | appSecureCookies (appSettings app) = sslOnlySessions
+                   | otherwise                          = id
 
+    -- CSRF: the token travels in the XSRF-TOKEN cookie; api.js echoes it in
+    -- the X-XSRF-TOKEN header and the login form in a hidden _token field.
     yesodMiddleware :: ToTypedContent res => Handler res -> Handler res
-    yesodMiddleware = defaultYesodMiddleware
+    yesodMiddleware handler = do
+        https <- getsYesod (appSecureCookies . appSettings)
+        (if https then sslOnlyMiddleware (365 * 24 * 60) else id)
+            $ defaultCsrfMiddleware
+            $ defaultYesodMiddleware handler
+
+    -- Unauthenticated visitors see the login page and nothing else; see
+    -- 'routeAccess' for what each route answers instead.
+    isAuthorized :: Route App -> Bool -> Handler AuthResult
+    isAuthorized route _ = do
+        authed <- isAuthenticated
+        case routeAccess route of
+            _ | authed -> return Authorized
+            Public     -> return Authorized
+            Page       -> redirect LoginR
+            Asset      -> notFound
+            Api        -> sendStatusJSON status401
+                              (A.object ["error" A..= ("Unauthorized" :: Text)])
 
     defaultLayout :: Widget -> Handler Html
     defaultLayout widget = do
@@ -174,13 +200,31 @@ sessionAuthKey = "authenticated"
 isAuthenticated :: Handler Bool
 isAuthenticated = isJust <$> lookupSession sessionAuthKey
 
--- | Guard for protected endpoints: mirrors the Python @login_required@
--- decorator, returning @401 {"error": "Unauthorized"}@ when not authenticated.
-requireAuth :: Handler ()
-requireAuth = do
-    authed <- isAuthenticated
-    unless authed $
-        sendStatusJSON status401 (A.object ["error" A..= ("Unauthorized" :: Text)])
+-- | How a route answers an unauthenticated request.
+data Access
+    = Public  -- ^ Served to anyone.
+    | Page    -- ^ Redirect to the login page.
+    | Asset   -- ^ 404, so scanners cannot tell the file exists.
+    | Api     -- ^ 401 JSON, which api.js turns into a trip to the login page.
+
+-- | Deliberately no wildcard: a new route must pick its access level.
+routeAccess :: Route App -> Access
+routeAccess route = case route of
+    StaticR _        -> Asset
+    FaviconR         -> Public
+    RobotsR          -> Public
+    HomeR            -> Page
+    LoginR           -> Public
+    LogoutR          -> Public
+    MetricsR         -> Api
+    MetricR _        -> Api
+    HeartrateR       -> Api
+    SleepPeriodsR    -> Api
+    SyncStatusR      -> Api
+    SyncR            -> Api
+    AdviceEntryR _   -> Api
+    AdviceR          -> Api
+    AdviceJobR _     -> Api
 
 -- | Validate a plaintext password against the configured bcrypt hash.
 checkPassword :: Text -> Handler Bool

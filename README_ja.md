@@ -84,6 +84,11 @@ stack exec oura-dashboard-hs
 http://localhost:3000 を開きます（ポートは `YESOD_PORT` で変更可能）。DB のパスは
 既定で `oura.db` です（`YESOD_SQLITE_DATABASE` で変更可能）。
 
+未認証のアクセスには `/login` の中立的なサインイン画面だけを返します。`/` はそこへ
+リダイレクトし、`/static/*` は 404 になります。HTTPS で配信するようになったら
+`YESOD_SECURE_COOKIES=true` でセッション Cookie に Secure を付け、HSTS を送ります
+（平文 HTTP で有効にすると Cookie が返送されずログインできなくなります）。
+
 起動時に DB のマイグレーションが走り、以前からの `oura.db` には `sleep_periods`
 テーブルが追加されます。中身は空なので、次の同期でバックフィルされるまで睡眠段階の
 チャートは空のままです（全履歴で約4,000レコード、1分かかりません）。
@@ -209,8 +214,10 @@ src/Oura.hs                       Oura Ring API v2 クライアント（取得�
 src/Sync.hs                       差分同期ロジック (sync.py の移植)
 src/Advice.hs                     アドバイスのジョブ状態管理 + claude CLI ワーカー
 src/Logging.hs                    ログ出力先の設定 (LOG_FILE、stdout フォールバック)
-src/Foundation.hs                 アプリ基盤、セッション認証 (bcrypt)
-src/Handler/Api.hs                認証 + metrics/heartrate/sleep_periods/sync ハンドラ
+src/Foundation.hs                 アプリ基盤、ルート単位の認可、CSRF、セッション Cookie
+src/LoginThrottle.hs              ログインフォームの IP 単位ブルートフォース対策
+src/Handler/Auth.hs               ログイン画面 (/login) とログアウト
+src/Handler/Api.hs                metrics/heartrate/sleep_periods/sync ハンドラ
 src/Handler/Advice.hs             アドバイス用エンドポイント
 src/Handler/Home.hs               static/index.html の配信
 app/main.hs                       Web サーバのエントリポイント

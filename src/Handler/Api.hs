@@ -4,7 +4,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies      #-}
 
--- | JSON API handlers ported from app.py (auth, metrics, heartrate, sync).
+-- | JSON API handlers ported from app.py (metrics, heartrate, sync).
 -- Advice handlers live in Handler.Advice (Phase 5).
 module Handler.Api where
 
@@ -46,31 +46,10 @@ requireDayText name raw =
           return
           (parseDayText raw)
 
--- Auth -------------------------------------------------------------------
-
-postLoginR :: Handler Value
-postLoginR = do
-    stored <- appPassword . appSettings <$> getYesod
-    when (null stored) $
-        sendStatusJSON status500 (A.object ["error" A..= ("APP_PASSWORD not configured" :: Text)])
-    body <- jsonBodyOrEmpty
-    ok <- checkPassword (fromMaybe "" (jsonText =<< jsonLookup "password" body))
-    if ok
-        then do
-            setSession sessionAuthKey "1"
-            returnJson (A.object ["ok" A..= True])
-        else sendStatusJSON status401 (A.object ["error" A..= ("Invalid password" :: Text)])
-
-postLogoutR :: Handler Value
-postLogoutR = do
-    deleteSession sessionAuthKey
-    returnJson (A.object ["ok" A..= True])
-
 -- Metrics ----------------------------------------------------------------
 
 getMetricsR :: Handler Value
 getMetricsR = do
-    requireAuth
     range <- parseRange
     requested <- lookupGetParam "metric"
     let names = maybe [] (filter (not . null) . map T.strip . T.splitOn ",") requested
@@ -85,7 +64,6 @@ getMetricsR = do
 
 getMetricR :: Text -> Handler Value
 getMetricR name = do
-    requireAuth
     metric <- case parseDailyMetric name of
         Just m | m `elem` dashboardMetrics -> return m
         _ -> sendStatusJSON status400
@@ -98,7 +76,6 @@ getMetricR name = do
 
 getHeartrateR :: Handler Value
 getHeartrateR = do
-    requireAuth
     range <- parseRange
     rows <- runDB $ Db.getHeartrate range
     returnJson rows
@@ -110,7 +87,6 @@ getHeartrateR = do
 -- metrics this is a flat array rather than a map.
 getSleepPeriodsR :: Handler Value
 getSleepPeriodsR = do
-    requireAuth
     range <- parseRange
     rows <- runDB $ Db.getSleepPeriods range
     returnJson rows
@@ -119,13 +95,11 @@ getSleepPeriodsR = do
 
 getSyncStatusR :: Handler Value
 getSyncStatusR = do
-    requireAuth
     status <- runDB Db.getSyncStatus
     returnJson status
 
 postSyncR :: Handler Value
 postSyncR = do
-    requireAuth
     body <- jsonBodyOrEmpty
     let field k = jsonText =<< jsonLookup k body
         requestedMetrics = mapMaybe parseMetricName

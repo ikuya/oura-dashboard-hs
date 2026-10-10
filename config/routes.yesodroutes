@@ -8,9 +8,9 @@
 
 / HomeR GET
 
--- Auth
-/api/login  LoginR  POST
-/api/logout LogoutR POST
+-- Auth (an HTML form; see Handler.Auth)
+/login  LoginR  GET POST
+/logout LogoutR POST
 
 -- Metrics
 /api/metrics          MetricsR      GET

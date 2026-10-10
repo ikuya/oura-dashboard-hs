@@ -9,6 +9,10 @@ port:           "_env:YESOD_PORT:3000" # NB: The port `yesod devel` uses is dist
 
 ip-from-header: "_env:YESOD_IP_FROM_HEADER:false"
 
+# Secure session cookie + HSTS. Enable only once the site is served over HTTPS;
+# over plain HTTP the cookie is never sent back and login stops working.
+secure-cookies: "_env:YESOD_SECURE_COOKIES:false"
+
 # Default behavior: determine the application root from the request headers.
 # Uncomment to set an explicit approot
 #approot:        "_env:YESOD_APPROOT:http://localhost:3000"

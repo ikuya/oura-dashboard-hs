@@ -43,11 +43,13 @@ import System.Log.FastLogger                (toLogStr)
 -- Import all relevant handler modules here.
 -- Don't forget to add new modules to your cabal file!
 import Advice (newAdviceJobs)
+import LoginThrottle (newLoginThrottle)
 import qualified Yesod.Core.Types as YT
 import Logging (newAppLog, newAppLoggerSet, newTimestamp)
 import Handler.Common
 import Handler.Home
 import Handler.Api
+import Handler.Auth
 import Handler.Advice
 
 -- This line actually creates our YesodDispatch instance. It is the second half
@@ -91,6 +93,9 @@ makeFoundation appSettings = do
 
     -- In-process advice job state.
     appAdviceJobs <- newAdviceJobs
+
+    -- In-process record of failed logins per IP.
+    appLoginThrottle <- newLoginThrottle
 
     -- We need a log function to create a connection pool. We need a connection
     -- pool to create our foundation. And we need our foundation to get a

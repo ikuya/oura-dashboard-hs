@@ -36,6 +36,26 @@ runHandler handler = do
     app <- getTestYesod
     fakeHandlerGetLogger appLogger app handler
 
+-- | Submit the login form with the given password, CSRF token included.
+postPassword :: Text -> YesodExample App ()
+postPassword password = do
+    get LoginR
+    request $ do
+        setMethod "POST"
+        setUrl LoginR
+        addToken
+        addPostParam "password" password
+
+-- | Log in with the test password (matches config/test-settings.yml hash).
+login :: YesodExample App ()
+login = postPassword "test-password"
+
+-- | Assert the last response redirected to @route@.
+redirectsTo :: Route App -> YesodExample App ()
+redirectsTo route = do
+    loc <- getLocation
+    liftIO $ loc `shouldBe` Right route
+
 withApp :: SpecWith (TestApp App) -> Spec
 withApp = withAppClient Nothing
 

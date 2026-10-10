@@ -24,7 +24,6 @@ import Advice (JobStatus (..), AdviceJob (..), statusText)
 -- POST /api/advice
 postAdviceR :: Handler Value
 postAdviceR = do
-    requireAuth
     today <- todayUtc
     healthData <- runDB $ Advice.buildHealthPayload today 14
 
@@ -52,7 +51,6 @@ postAdviceR = do
 -- GET /api/advice/<seg> — history list when seg == "history", else job status.
 getAdviceJobR :: Text -> Handler Value
 getAdviceJobR seg = do
-    requireAuth
     if seg == "history"
         then adviceHistoryList
         else adviceJobStatus seg
@@ -82,7 +80,6 @@ adviceHistoryList = do
 -- GET /api/advice/history/<date>
 getAdviceEntryR :: Text -> Handler Value
 getAdviceEntryR raw = do
-    requireAuth
     day <- maybe (sendStatusJSON status400
                     (A.object ["error" A..= ("Invalid date format" :: Text)]))
                  return

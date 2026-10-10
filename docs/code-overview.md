@@ -33,8 +33,10 @@ Python/Flask 版 `oura-dashboard` からの移植で、**JSON API はバイト�
 | `src/DateText.hs` | 77 | **新規**。`DayText`（`YYYY-MM-DD` の newtype）と `DateRange`。`parseDayText` は形状チェックのみの `Maybe` 版、`parseDay` は `Day` への変換で失敗時 `error` |
 | `src/Json.hs` | 42 | **新規**。`Value` に対する `jsonLookup`/`jsonText`/`jsonDouble`/`jsonInt`/`jsonArray`。Oura API のペイロードと `data_json` を読むための共通ヘルパー |
 | `src/Logging.hs` | 83 | **新規**。`AppLog`（`LogLevel -> Text -> IO ()` を包んだ newtype）でプレーン `IO` から書けるログ出口を明示的に受け渡す。旧版のグローバルロガーを置き換え |
-| `src/Foundation.hs` | 189 | `App` 型、bcrypt によるセッション認証（`requireAuth` → 401 JSON） |
-| `src/Handler/Api.hs` | 150 | ログイン/ログアウト、metrics、heartrate、sleep_periods、sync |
+| `src/Foundation.hs` | 233 | `App` 型、`isAuthorized` によるルート単位の認可（`routeAccess`）、CSRF、セッション Cookie |
+| `src/LoginThrottle.hs` | 68 | ログイン失敗の IP 単位カウント（15 分で 5 回 → 拒否）。純粋な核と TVar の殻 |
+| `src/Handler/Auth.hs` | 74 | ログイン画面（HTML フォーム）とログアウト |
+| `src/Handler/Api.hs` | 149 | metrics、heartrate、sleep_periods、sync |
 | `src/Handler/Advice.hs` | 111 | advice の POST / ポーリング / 履歴 |
 | `src/DailySync.hs` | 85 | cron 用 CLI。JST タイムスタンプ、7 日分 backfill、エラー時 exit 1 |
 | `src/Application.hs` | 230 | `.env` ロード → 設定 → コネクションプール作成 → migrate → Warp 起動 |
@@ -53,8 +55,8 @@ Python/Flask 版 `oura-dashboard` からの移植で、**JSON API はバイト�
 ### ルート（`config/routes.yesodroutes`）
 
 ```
-/                          ダッシュボード（静的 HTML）
-/api/login  /api/logout
+/                          ダッシュボード（静的 HTML。未認証は /login へ）
+/login  /logout            ログイン画面（HTML フォーム）とログアウト
 /api/metrics  /api/metrics/#Text
 /api/heartrate
 /api/sleep_periods         睡眠段階チャート用（必要フィールドのみ返す）
@@ -207,8 +209,9 @@ flowchart LR
 
 ### Handler 層
 
-- **`Foundation.hs`** — `App` レコード（DB プール、静的ファイル設定、`OuraClient` のテスト用差し替え口、advice ジョブ状態、`AppLog` など）。`requireAuth` がセッション未認証を 401 JSON で弾く。`checkPassword` は bcrypt 検証。
-- **`Handler/Api.hs`** — `postLoginR`/`postLogoutR`（セッション設定）、`getMetricsR`/`getMetricR`（`parseRange` でクエリパラメータから `DateRange` を組み立て、`Db.getDailyMetrics(Bulk)` を呼ぶ）、`getHeartrateR`、`getSyncStatusR`、`postSyncR`（`appOuraClientOverride` があればそれを使い、なければ `OURA_TOKEN` から `realClient` を構築して `Sync.runSync` を実行、`backfillDays = 0` 固定）。日付を受け取る入口（`parseRange` のクエリパラメータ、sync 本文の `start`/`end`）はいずれも `requireDayText` を通し、不正な日付は 400 で弾く。`jsonBodyOrEmpty` は `parseCheckJsonBody` の結果を見て、パース失敗時だけ空オブジェクトにフォールバックする（後述：以前は `SomeException` を丸ごと捕捉していた）。
+- **`Foundation.hs`** — `App` レコード（DB プール、静的ファイル設定、`OuraClient` のテスト用差し替え口、advice ジョブ状態、`AppLog` など）。`isAuthorized` が `routeAccess` でルートを分類し、未認証なら `/` は `/login` へリダイレクト、`/static/*` は 404、`/api/*` は 401 JSON を返す（`routeAccess` はワイルドカードなしで、新ルートは分類を強制される）。セッション Cookie は `SameSite=Lax`、`defaultCsrfMiddleware` で CSRF トークンを照合する。`checkPassword` は bcrypt 検証。
+- **`Handler/Auth.hs`** — `getLoginR`/`postLoginR`/`postLogoutR`。ログイン画面は `templates/login.hamlet` を `withUrlRenderer` で直接描画する（`defaultLayout` は CSS を `/static/tmp` に書き出し、未認証では読めないため使わない）。失敗回数は `LoginThrottle` で IP ごとに数える。
+- **`Handler/Api.hs`** — `getMetricsR`/`getMetricR`（`parseRange` でクエリパラメータから `DateRange` を組み立て、`Db.getDailyMetrics(Bulk)` を呼ぶ）、`getHeartrateR`、`getSyncStatusR`、`postSyncR`（`appOuraClientOverride` があればそれを使い、なければ `OURA_TOKEN` から `realClient` を構築して `Sync.runSync` を実行、`backfillDays = 0` 固定）。日付を受け取る入口（`parseRange` のクエリパラメータ、sync 本文の `start`/`end`）はいずれも `requireDayText` を通し、不正な日付は 400 で弾く。`jsonBodyOrEmpty` は `parseCheckJsonBody` の結果を見て、パース失敗時だけ空オブジェクトにフォールバックする（後述：以前は `SomeException` を丸ごと捕捉していた）。
 - **`Handler/Advice.hs`** — `postAdviceR`（14 日分のペイロードを作り、データが皆無なら 400、そうでなければジョブを作って `forkIO` で起動し 202 を返す）、`getAdviceJobR`（`seg == "history"` かジョブ ID かを文字列で分岐）、`adviceJobStatus`（ジョブの状態に応じて 200/502/202）、`getAdviceEntryR`（`parseDayText` で日付形式を検証してから履歴を引く）。
 - **`Handler/Home.hs`** / **`Handler/Common.hs`** — 静的な `index.html`・favicon・robots.txt の配信。
 

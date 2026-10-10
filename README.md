@@ -85,6 +85,11 @@ stack exec oura-dashboard-hs
 Then open http://localhost:3000 (override with `YESOD_PORT`). The database path
 defaults to `oura.db` (override with `YESOD_SQLITE_DATABASE`).
 
+Unauthenticated visitors only get a neutral sign-in page at `/login`; `/` redirects
+there and `/static/*` answers 404. Once the site is served over HTTPS, set
+`YESOD_SECURE_COOKIES=true` to mark the session cookie Secure and send HSTS (leave
+it off over plain HTTP, or the browser never sends the cookie back).
+
 Startup migrates the database, which on an older `oura.db` adds the
 `sleep_periods` table. It starts empty, so the sleep stage charts stay blank
 until the next sync backfills them (the full history is ~4,000 records and takes
@@ -210,8 +215,10 @@ src/Oura.hs                       Oura Ring API v2 client (record of fetch funct
 src/Sync.hs                       Incremental sync logic (ported from sync.py)
 src/Advice.hs                     Advice job state + claude CLI worker
 src/Logging.hs                    Log destination setup (LOG_FILE, stdout fallback)
-src/Foundation.hs                 App foundation, session auth (bcrypt)
-src/Handler/Api.hs                Auth + metrics/heartrate/sleep_periods/sync handlers
+src/Foundation.hs                 App foundation, per-route auth, CSRF, session cookie
+src/LoginThrottle.hs              Per-IP brute-force protection for the login form
+src/Handler/Auth.hs               Login page (/login) and logout
+src/Handler/Api.hs                metrics/heartrate/sleep_periods/sync handlers
 src/Handler/Advice.hs             Advice endpoints
 src/Handler/Home.hs               Serves static/index.html
 app/main.hs                       Web server entry point

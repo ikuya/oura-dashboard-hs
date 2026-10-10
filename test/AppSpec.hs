@@ -12,15 +12,6 @@ import qualified Data.Map.Strict as M
 import Database.Persist.Sql (rawExecute, toPersistValue)
 import Advice (AdviceJob (..), JobStatus (..))
 
--- | Log in with the test password (matches config/test-settings.yml hash).
-login :: YesodExample App ()
-login = do
-    request $ do
-        setMethod "POST"
-        setUrl LoginR
-        setRequestBody "{\"password\":\"test-password\"}"
-        addRequestHeader ("Content-Type", "application/json")
-
 -- | A stub Oura client returning fixed sleep records; used by the sync test.
 syncStubClient :: OuraClient
 syncStubClient = OuraClient
@@ -34,50 +25,63 @@ syncStubClient = OuraClient
 spec :: Spec
 spec = do
     describe "auth" $ withApp $ do
-        it "login succeeds with correct password" $ do
+        it "login page is served without naming the app" $ do
+            get LoginR
+            statusIs 200
+            bodyContains "Sign in"
+            bodyNotContains "Oura"
+
+        it "login succeeds with correct password and redirects home" $ do
             login
+            statusIs 303
+            redirectsTo HomeR
+            get MetricsR
             statusIs 200
 
         it "login fails with wrong password" $ do
+            postPassword "wrong"
+            statusIs 401
+            bodyContains "Invalid password"
+            get MetricsR
+            statusIs 401
+
+        it "login without a CSRF token is rejected" $ do
             request $ do
                 setMethod "POST"
                 setUrl LoginR
-                setRequestBody "{\"password\":\"wrong\"}"
-                addRequestHeader ("Content-Type", "application/json")
+                addPostParam "password" "test-password"
+            statusIs 403
+
+        it "too many failures lock the IP out, even with the right password" $ do
+            replicateM_ 5 (postPassword "wrong")
+            postPassword "test-password"
+            statusIs 429
+            get MetricsR
             statusIs 401
 
-        -- A body that cannot be parsed is treated as {} (no password), the way
-        -- Flask's get_json(silent=True) did, rather than surfacing as a 500.
-        it "login with malformed JSON returns 401" $ do
-            request $ do
-                setMethod "POST"
-                setUrl LoginR
-                setRequestBody "{not json"
-                addRequestHeader ("Content-Type", "application/json")
-            statusIs 401
-
-        it "login with no body returns 401" $ do
-            request $ setMethod "POST" >> setUrl LoginR
-            statusIs 401
-
-        it "login with non-JSON content type returns 401" $ do
-            request $ do
-                setMethod "POST"
-                setUrl LoginR
-                setRequestBody "{\"password\":\"test-password\"}"
-                addRequestHeader ("Content-Type", "text/plain")
-            statusIs 401
+        it "login page redirects home once logged in" $ do
+            login
+            get LoginR
+            statusIs 303
+            redirectsTo HomeR
 
         it "logout then protected endpoint returns 401" $ do
             login
-            request $ setMethod "POST" >> setUrl LogoutR
-            statusIs 200
+            get LoginR  -- any page refreshes the XSRF-TOKEN cookie
+            request $ setMethod "POST" >> setUrl LogoutR >> addTokenFromCookie
+            statusIs 303
+            redirectsTo LoginR
             get MetricsR
             statusIs 401
 
         it "protected endpoint requires auth" $ do
             get MetricsR
             statusIs 401
+
+        it "API POST without the CSRF header is rejected" $ do
+            login
+            request $ setMethod "POST" >> setUrl SyncR
+            statusIs 403
 
     describe "metrics" $ withApp $ do
         it "empty metrics returns 200 object" $ do
@@ -174,6 +178,7 @@ spec = do
             request $ do
                 setMethod "POST"
                 setUrl SyncR
+                addTokenFromCookie
                 setRequestBody "{\"start\":\"2024-01-01\",\"end\":\"2024-01-31\",\"metrics\":[\"sleep\"]}"
                 addRequestHeader ("Content-Type", "application/json")
             statusIs 202
@@ -184,6 +189,7 @@ spec = do
             request $ do
                 setMethod "POST"
                 setUrl SyncR
+                addTokenFromCookie
                 setRequestBody "{ not json"
                 addRequestHeader ("Content-Type", "application/json")
             statusIs 202
@@ -191,7 +197,7 @@ spec = do
 
         it "sync with no body uses defaults and returns 202" $ do
             login
-            request $ setMethod "POST" >> setUrl SyncR
+            request $ setMethod "POST" >> setUrl SyncR >> addTokenFromCookie
             statusIs 202
             bodyContains "synced"
 
@@ -202,6 +208,7 @@ spec = do
             request $ do
                 setMethod "POST"
                 setUrl SyncR
+                addTokenFromCookie
                 setRequestBody "{\"end\":\"1999-13-45\",\"metrics\":[\"heartrate\"]}"
                 addRequestHeader ("Content-Type", "application/json")
             statusIs 400
@@ -211,6 +218,7 @@ spec = do
             request $ do
                 setMethod "POST"
                 setUrl SyncR
+                addTokenFromCookie
                 setRequestBody "{\"start\":\"not-a-date\"}"
                 addRequestHeader ("Content-Type", "application/json")
             statusIs 400
@@ -218,7 +226,7 @@ spec = do
     describe "advice" $ withApp $ do
         it "POST /api/advice with no data returns 400" $ do
             login
-            request $ setMethod "POST" >> setUrl AdviceR
+            request $ setMethod "POST" >> setUrl AdviceR >> addTokenFromCookie
             statusIs 400
 
         it "job not found returns 404" $ do

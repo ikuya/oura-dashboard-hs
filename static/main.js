@@ -516,65 +516,10 @@ document.getElementById("hr-next-day").addEventListener("click", () => {
   refreshAdviceCalendar = loadAdviceDates;
 })();
 
-// --- Login modal ---
-(function () {
-  const overlay   = document.getElementById("login-overlay");
-  const input     = document.getElementById("login-password-input");
-  const submitBtn = document.getElementById("login-submit-btn");
-  const errorEl   = document.getElementById("login-error");
-
-  function showLoginModal() {
-    errorEl.textContent = "";
-    overlay.classList.remove("hidden");
-    setTimeout(() => input.focus(), 50);
-  }
-
-  function hideLoginModal() {
-    overlay.classList.add("hidden");
-    input.value = "";
-    errorEl.textContent = "";
-  }
-
-  window.showLoginModal = showLoginModal;
-
-  async function doLogin() {
-    const password = input.value;
-    if (!password) return;
-    submitBtn.disabled = true;
-    submitBtn.textContent = "...";
-    errorEl.textContent = "";
-    try {
-      const res = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      if (res.ok) {
-        hideLoginModal();
-        loadData();
-        if (typeof refreshAdviceCalendar === "function") refreshAdviceCalendar();
-      } else {
-        const data = await res.json();
-        errorEl.textContent = data.error || "パスワードが違います";
-        input.value = "";
-        input.focus();
-      }
-    } catch (e) {
-      errorEl.textContent = "ネットワークエラー";
-    } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = "ログイン";
-    }
-  }
-
-  submitBtn.addEventListener("click", doLogin);
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
-})();
-
 // --- Logout button ---
 document.getElementById("logout-btn").addEventListener("click", async () => {
-  await fetch("/api/logout", { method: "POST" });
-  window.showLoginModal();
+  await apiFetch("/logout", { method: "POST" });
+  location.href = "/login";
 });
 
 // --- Init ---
