@@ -24,7 +24,7 @@ Python/Flask 版から移植したエンドポイントはバイト単位で互�
   7 日移動平均を破線で表示
 - 差分同期（ローカル未保存の日付のみを取得）
 - **アドバイス** — 直近14日間を `claude` CLI で分析し、日本語の健康サマリーを表示。
-  結果は DB に保存され、後から閲覧可能
+  結果は DB に保存され、後から閲覧可能。cron による定期実行も可能（「定期アドバイス」参照）
 - **パスワード保護** — セッションベース。パスワードは bcrypt ハッシュとして
   `APP_PASSWORD` に保存
 - 完全ローカル動作: Oura API と Claude CLI 以外の外部サービスに依存しません
@@ -140,6 +140,23 @@ stack exec oura-daily-sync
 `run_daily_sync.sh` を cron に登録して運用します（日中の心拍データを最新に保つため、
 1日に数回実行する想定です）。
 
+## 定期アドバイス
+
+`oura-advice` 実行ファイルは、Advice ボタンと同じ直近14日間でアドバイスを生成し、
+履歴に保存します。データが無い場合や `claude` CLI が失敗した場合は exit 1 で終了します:
+
+```bash
+stack exec oura-advice
+```
+
+`run_advice.sh` を cron に登録して運用します。前夜の睡眠が含まれるよう、朝の同期の
+後に実行します。月・水・金に実行する例:
+
+```
+0 11,17,23 * * * /home/YOUR_USER/work/oura-dashboard-hs/run_daily_sync.sh
+30 11 * * 1,3,5  /home/YOUR_USER/work/oura-dashboard-hs/run_advice.sh
+```
+
 ## ログ
 
 `LOG_FILE` を設定するとファイルに出力します。未設定の場合は stdout に出力します
@@ -149,9 +166,10 @@ stack exec oura-daily-sync
 LOG_FILE=$PWD/log/oura-dashboard.log stack exec oura-dashboard-hs
 ```
 
-`run_oura_dashboard.sh` と `run_daily_sync.sh` では、それぞれ
-`log/oura-dashboard.log` と `log/oura-daily-sync.log` が自動的に設定されます。
-各プロセスは独自のバッファ付きハンドルを保持するため、2つのプロセスで同一ファイルを
+`run_oura_dashboard.sh`・`run_daily_sync.sh`・`run_advice.sh` では、それぞれ
+`log/oura-dashboard.log`・`log/oura-daily-sync.log`・`log/oura-advice.log` が
+自動的に設定されます。
+各プロセスは独自のバッファ付きハンドルを保持するため、複数のプロセスで同一ファイルを
 共有してはいけません。アプリ自身が記録できない起動時のクラッシュ等は、対応する
 `*.stdio.log` に出力されます。ログファイルを開けない場合は、stderr に警告を出して
 stdout にフォールバックし、起動は継続します。
@@ -217,6 +235,8 @@ src/Db.hs                         SQLite のクエリ/upsert 層 (db.py の移�
 src/Oura.hs                       Oura Ring API v2 クライアント（取得関数のレコード）
 src/Sync.hs                       差分同期ロジック (sync.py の移植)
 src/Advice.hs                     アドバイスのジョブ状態管理 + claude CLI ワーカー
+src/DailySync.hs                  日次同期 CLI (cron)
+src/ScheduledAdvice.hs            定期アドバイス CLI (cron)
 src/Logging.hs                    ログ出力先の設定 (LOG_FILE、stdout フォールバック)
 src/Foundation.hs                 アプリ基盤、ルート単位の認可、CSRF、セッション Cookie
 src/LoginThrottle.hs              ログインフォームの IP 単位ブルートフォース対策

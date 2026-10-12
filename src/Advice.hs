@@ -17,6 +17,8 @@ module Advice
     , extractKeyFields
     , buildHealthPayload
     , buildAdvicePrompt
+    , hasHealthData
+    , generateAdvice
     , newAdviceJobs
     , createAdviceJob
     , getJob
@@ -32,6 +34,7 @@ import qualified Data.Map.Strict     as M
 import qualified Data.Text.Lazy      as TL
 import Database.Persist.Sql       (SqlBackend)
 import System.Exit                (ExitCode (..))
+import System.IO.Error            (isDoesNotExistError)
 import System.Process             (readCreateProcessWithExitCode, proc)
 import System.Timeout             (timeout)
 import qualified Data.UUID         as UUID
@@ -228,6 +231,41 @@ buildAdvicePrompt healthData =
     prettyJson = TL.toStrict $ decodeUtf8 $ AP.encodePretty' cfg healthData
     cfg = AP.defConfig { AP.confIndent = AP.Spaces 2, AP.confTrailingNewline = False }
 
+-- | Whether the payload holds any metric rows at all. With none there is
+-- nothing to analyse, and asking anyway only spends a claude call.
+hasHealthData :: A.Value -> Bool
+hasHealthData healthData = case jsonLookup "metrics" healthData of
+    Just (A.Object ms) -> any nonEmptyArr (KM.elems ms)
+    _                  -> False
+  where
+    nonEmptyArr (A.Array a) = not (null a)
+    nonEmptyArr _           = False
+
+-- | Run the claude CLI on a prompt: the report, or why it could not be had.
+-- Shared by the web's advice jobs and the scheduled CLI.
+generateAdvice :: Text -> IO (Either Text Text)
+generateAdvice prompt = do
+    let cp = proc "claude"
+            [ "-p", unpack prompt, "--max-turns", "1", "--model", "opus"
+            , "--append-system-prompt", appendSystemPrompt ]
+    result <- try (timeout (120 * 1000000) (readCreateProcessWithExitCode cp ""))
+    return $ case result of
+        Left (e :: IOException)
+            | isDoesNotExistError e ->
+                Left "claude コマンドが見つかりません。Claude Code がインストールされているか確認してください。"
+            | otherwise ->
+                Left ("Claude Code の実行に失敗しました: " <> tshow e)
+        Right Nothing ->
+            Left "分析がタイムアウトしました。"
+        Right (Just (ExitFailure _, out, err)) ->
+            Left (if null err
+                      then if null out
+                               then "Claude Code の実行に失敗しました。"
+                               else "Claude Code の実行に失敗しました: " <> pack out
+                      else pack err)
+        Right (Just (ExitSuccess, out, _)) ->
+            Right (pack out)
+
 -- TVar job map -----------------------------------------------------------
 
 newAdviceJobs :: IO AdviceJobs
@@ -260,23 +298,10 @@ runAdviceJob appLog jobs jid prompt saveAdvice' = do
     setJob jobs jid (\j -> j { jobStatus = Running })
     writeLog appLog LevelInfo ("advice job " <> jid <> " started")
     started <- getCurrentTime
-    let cp = proc "claude"
-            [ "-p", unpack prompt, "--max-turns", "1", "--model", "opus"
-            , "--append-system-prompt", appendSystemPrompt ]
-    result <- try (timeout (120 * 1000000) (readCreateProcessWithExitCode cp ""))
+    result <- generateAdvice prompt
     case result of
-        Left (_ :: IOException) ->
-            fail' "claude コマンドが見つかりません。Claude Code がインストールされているか確認してください。"
-        Right Nothing ->
-            fail' "分析がタイムアウトしました。"
-        Right (Just (ExitFailure _, out, err)) ->
-            fail' (if null err
-                       then if null out
-                                then "Claude Code の実行に失敗しました。"
-                                else "Claude Code の実行に失敗しました: " <> pack out
-                       else pack err)
-        Right (Just (ExitSuccess, out, _)) -> do
-            let adviceOut = pack out
+        Left msg -> fail' msg
+        Right adviceOut -> do
             setJob jobs jid (\j -> j { jobStatus = Completed, jobAdvice = adviceOut, jobError = Nothing })
             elapsed <- elapsedSince started
             writeLog appLog LevelInfo

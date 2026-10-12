@@ -10,7 +10,6 @@ module Handler.Advice where
 
 import Import
 import qualified Data.Aeson          as A
-import qualified Data.Aeson.KeyMap   as KM
 import Database.Persist.Sql (ConnectionPool, runSqlPool)
 import Control.Concurrent  (forkIO)
 import Network.HTTP.Types (status202, status400, status404, status502)
@@ -27,11 +26,8 @@ postAdviceR = do
     today <- todayUtc
     healthData <- runDB $ Advice.buildHealthPayload today 14
 
-    -- 400 if there is no data at all (any metric list non-empty).
-    let hasData = case jsonLookup "metrics" healthData of
-            Just (A.Object ms) -> any nonEmptyArr (KM.elems ms)
-            _                  -> False
-    unless hasData $
+    -- 400 if there is no data at all.
+    unless (Advice.hasHealthData healthData) $
         sendStatusJSON status400
             (A.object ["error" A..= ("データがありません。まずSyncを実行してください。" :: Text)])
 
@@ -97,10 +93,6 @@ getAdviceEntryR raw = do
             ]
 
 -- helpers ----------------------------------------------------------------
-
-nonEmptyArr :: A.Value -> Bool
-nonEmptyArr (A.Array a) = not (null a)
-nonEmptyArr _           = False
 
 -- | Save advice to advice_history, running in the connection pool.
 saveAdviceIO :: ConnectionPool -> DayText -> DayText -> Text -> IO ()

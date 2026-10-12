@@ -14,18 +14,20 @@
 module Logging
     ( newAppLoggerSet
     , newTimestamp
+    , runLog
     , AppLog (..)
     , newAppLog
     ) where
 
 import ClassyPrelude
-import Control.Monad.Logger (LogLevel (..))
+import Control.Monad.Logger (LogLevel (..), LoggingT, defaultLogStr,
+                             runLoggingT)
 import System.Directory     (createDirectoryIfMissing)
 import System.FilePath      (takeDirectory)
 import System.IO            (hPutStrLn)
 import System.Log.FastLogger
     ( FormattedTime, LoggerSet, defaultBufSize, newFileLoggerSet
-    , newStdoutLoggerSet, newTimeCache, pushLogStrLn, toLogStr )
+    , newStdoutLoggerSet, newTimeCache, pushLogStr, pushLogStrLn, toLogStr )
 
 -- | Build the logger set for a log file path. 'Nothing' (or an empty path)
 -- means stdout.
@@ -49,6 +51,18 @@ newAppLoggerSet mpath = case mpath of
     _ -> stdoutSet
   where
     stdoutSet = newStdoutLoggerSet defaultBufSize
+
+-- | Run a LoggingT against the app's logger set, for the cron CLIs. Each line
+-- is prefixed with the local time, the way Yesod prefixes the web app's lines.
+-- Mirrors Foundation's shouldLogIO: Debug (which includes persistent's
+-- per-query SQL logging) needs YESOD_SHOULD_LOG_ALL.
+runLog :: Bool -> LoggerSet -> LoggingT IO a -> IO a
+runLog logAll ls act = do
+    getTime <- newTimestamp
+    runLoggingT act $ \loc src level msg ->
+        when (logAll || level >= LevelInfo) $ do
+            ts <- getTime
+            pushLogStr ls (toLogStr ts <> " " <> defaultLogStr loc src level msg)
 
 -- Logging from plain IO ---------------------------------------------------
 

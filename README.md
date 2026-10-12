@@ -26,7 +26,8 @@ has been added since — the sleep stage charts — is new on both sides.
   the 28 days before it, and the daily charts carry a dashed 7-day moving average
 - Incremental sync (only fetches dates not yet stored locally)
 - **Advice** — analyzes the last 14 days with the `claude` CLI and shows a
-  Japanese health summary; saved to the DB and browsable
+  Japanese health summary; saved to the DB and browsable. Can also run on a
+  schedule from cron (see Scheduled Advice)
 - **Password protection** — session-based, password stored as a bcrypt hash in
   `APP_PASSWORD`
 - Fully local: no external services beyond the Oura API and Claude CLI
@@ -142,6 +143,24 @@ stack exec oura-daily-sync
 Wire it into cron via `run_daily_sync.sh` (runs a few times a day so intraday
 heart-rate data stays current).
 
+## Scheduled Advice
+
+The `oura-advice` executable generates advice over the last 14 days, the same
+window as the Advice button, and saves it to the history. It exits 1 when
+there is no data or the `claude` CLI fails:
+
+```bash
+stack exec oura-advice
+```
+
+Wire it into cron via `run_advice.sh`, after the morning sync so the last
+night is included. For Monday, Wednesday and Friday:
+
+```
+0 11,17,23 * * * /home/YOUR_USER/work/oura-dashboard-hs/run_daily_sync.sh
+30 11 * * 1,3,5  /home/YOUR_USER/work/oura-dashboard-hs/run_advice.sh
+```
+
 ## Logging
 
 Set `LOG_FILE` to write logs to a file; leave it unset to log to stdout (the
@@ -151,8 +170,9 @@ default, and what you want during development):
 LOG_FILE=$PWD/log/oura-dashboard.log stack exec oura-dashboard-hs
 ```
 
-`run_oura_dashboard.sh` and `run_daily_sync.sh` set this for you, to
-`log/oura-dashboard.log` and `log/oura-daily-sync.log` respectively. The two
+`run_oura_dashboard.sh`, `run_daily_sync.sh` and `run_advice.sh` set this for
+you, to `log/oura-dashboard.log`, `log/oura-daily-sync.log` and
+`log/oura-advice.log` respectively. The two
 processes must not share a file, since each holds its own buffered handle.
 Startup crashes that the app cannot log itself land in the matching
 `*.stdio.log`. If the log file cannot be opened, the app warns on stderr and
@@ -219,6 +239,8 @@ src/Db.hs                         SQLite query/upsert layer (ported from db.py)
 src/Oura.hs                       Oura Ring API v2 client (record of fetch functions)
 src/Sync.hs                       Incremental sync logic (ported from sync.py)
 src/Advice.hs                     Advice job state + claude CLI worker
+src/DailySync.hs                  Daily sync CLI (cron)
+src/ScheduledAdvice.hs            Scheduled advice CLI (cron)
 src/Logging.hs                    Log destination setup (LOG_FILE, stdout fallback)
 src/Foundation.hs                 App foundation, per-route auth, CSRF, session cookie
 src/LoginThrottle.hs              Per-IP brute-force protection for the login form

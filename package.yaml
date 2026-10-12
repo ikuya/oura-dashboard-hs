@@ -99,6 +99,20 @@ executables:
     - condition: flag(library-only)
       buildable: false
 
+  # Scheduled advice CLI (cron): generates and saves advice after the sync.
+  oura-advice:
+    main: main.hs
+    source-dirs: app-advice
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - oura-dashboard-hs
+    when:
+    - condition: flag(library-only)
+      buildable: false
+
 # Test suite
 tests:
   oura-dashboard-hs-test:
