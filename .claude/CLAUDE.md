@@ -15,7 +15,8 @@
   速い。新規生成は README.md の手順で（python の `bcrypt` モジュールは入っていない）
 - 動作確認は本番 `oura.db` を避け、`YESOD_SQLITE_DATABASE` に複製を指定する
 - `static/*` と `index.html` は `Cache-Control: no-cache` で配信している
-  （`Application.revalidating`）ので、通常リロードで反映される。ただし ETag は起動時に
-  計算されるため、`static/*.js` を変えたらサーバの再起動が必要。再起動前の古い
-  ブラウザキャッシュ（1 年 max-age 時代のもの）が残っていれば一度だけ `Ctrl+Shift+R`
+  （`Application.revalidating`）ので、サーバ稼働中に編集しても通常リロードで反映される。
+  `staticDevel` は起動時に ETag を計算し、以後 mtime が変わったファイルは ETag を外して
+  Last-Modified で再検証する（再起動するまでそのファイルは秒単位の mtime 頼み）。
+  1 年 max-age 時代の古いブラウザキャッシュが残っていれば一度だけ `Ctrl+Shift+R`
 

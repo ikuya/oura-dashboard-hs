@@ -28,7 +28,6 @@ secure-cookies: "_env:YESOD_SECURE_COOKIES:false"
 # detailed-logging: false
 # should-log-all: false
 # reload-templates: false
-# mutable-static: false
 # skip-combining: false
 # auth-dummy-login : false
 

@@ -31,6 +31,9 @@ CLAUDE.md に「ハードリロード必須」と書いている問題を実装�
 （yesod-static のハッシュ付き URL を ES モジュールの import に反映する、
 または `Cache-Control: no-cache` を返す）。開発のたびに踏む罠なので効果が大きい。
 
+- 対応済み（2026-10-12）：`Cache-Control: no-cache` で配信し、`staticDevel` で
+  稼働中に編集したファイルも再起動なしで反映される（`Application.revalidating`）
+
 ## 優先度：中（同期対象の拡張）
 
 ### 4. タグ・ワークアウト・セッションの同期と相関表示

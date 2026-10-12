@@ -64,8 +64,13 @@ mkYesodDispatch "App" resourcesApp
 -- (@./charts.js@), so nothing busts that cache: after a deploy the browser
 -- kept running the old modules against the new index.html until a hard
 -- reload. With no-cache it revalidates each file by ETag and gets a 304 when
--- nothing changed. The ETags of 'static' are computed once at startup, so a
--- change shows up after a restart (as with any other code change).
+-- nothing changed.
+--
+-- Always 'staticDevel', never 'static': the latter hashes the files once at
+-- startup, so an edit made while the server runs kept the old ETag and every
+-- revalidation answered 304 with the stale module. 'staticDevel' also hashes
+-- at startup but drops the ETag of a file whose mtime has changed since, so
+-- that file is revalidated by Last-Modified until the next restart.
 revalidating :: Static -> Static
 revalidating (Static settings) = Static settings { ssMaxAge = NoCache }
 
@@ -96,9 +101,7 @@ makeFoundation appSettings = do
     appAccessLoggerSet <- case appAccessLogFile appSettings of
         Nothing -> return loggerSet'
         path    -> newAppLoggerSet path
-    appStatic <- revalidating <$>
-        (if appMutableStatic appSettings then staticDevel else static)
-        (appStaticDir appSettings)
+    appStatic <- revalidating <$> staticDevel (appStaticDir appSettings)
 
     -- No test override in production; the sync handler builds a real client.
     let appOuraClientOverride = Nothing

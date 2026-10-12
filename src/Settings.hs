@@ -48,8 +48,6 @@ data AppSettings = AppSettings
     -- ^ Should all log messages be displayed?
     , appReloadTemplates        :: Bool
     -- ^ Use the reload version of templates
-    , appMutableStatic          :: Bool
-    -- ^ Assume that files in the static dir may change after compilation
     , appSkipCombining          :: Bool
     -- ^ Perform no stylesheet/script combining
 
@@ -101,7 +99,6 @@ instance FromJSON AppSettings where
         appDetailedRequestLogging <- o .:? "detailed-logging" .!= dev
         appShouldLogAll           <- o .:? "should-log-all"   .!= dev
         appReloadTemplates        <- o .:? "reload-templates" .!= dev
-        appMutableStatic          <- o .:? "mutable-static"   .!= dev
         appSkipCombining          <- o .:? "skip-combining"   .!= dev
 
         appCopyright              <- o .:  "copyright"
