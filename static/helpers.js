@@ -19,6 +19,15 @@ export function scoreColor(v) {
   return "#ef4444";
 }
 
+// The band scoreColor / scoreClass paint, spelled out so the card does not
+// rest on telling green, yellow and red apart.
+export function scoreLabel(v) {
+  if (v == null) return null;
+  if (v >= 80) return "Good";
+  if (v >= 60) return "Fair";
+  return "Low";
+}
+
 export function scoreClass(v) {
   if (v == null) return "score-neutral";
   if (v >= 80) return "score-green";

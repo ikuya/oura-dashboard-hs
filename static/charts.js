@@ -1,4 +1,4 @@
-import { scoreColor, scoreClass, formatDuration, mainPeriod } from "./helpers.js";
+import { scoreColor, scoreClass, scoreLabel, formatDuration, mainPeriod } from "./helpers.js";
 
 Chart.defaults.color = "#6b7280";
 Chart.defaults.borderColor = "#2a2d3a";
@@ -62,13 +62,23 @@ export function makeChart(id, charts, config) {
   return charts[id];
 }
 
-export function lineDataset(label, records, color, yField = "score") {
+// Series colours, checked with the dataviz palette validator against the card
+// surface (#1a1d27) for protan / deutan / tritan separation. The previous
+// green / amber / red set failed it (green vs amber: protan ΔE 5.7).
+export const SERIES_BLUE = "#3987e5";
+export const SERIES_ORANGE = "#d95926";
+export const SERIES_AQUA = "#199e70";
+
+// A 0-100 score series. The points keep the green / yellow / red score
+// colours; the lines carry the series colour.
+export function lineDataset(label, records, color, value = (r) => r.score) {
+  const values = records.map((r) => value(r) ?? null);
   return {
     label,
-    data: records.map((r) => ({ x: r.day, y: r[yField] ?? null })),
+    data: records.map((r, i) => ({ x: r.day, y: values[i] })),
     borderColor: color,
     backgroundColor: color + "22",
-    pointBackgroundColor: records.map((r) => scoreColor(r[yField])),
+    pointBackgroundColor: values.map(scoreColor),
     pointRadius: 3,
     tension: 0.3,
     spanGaps: true,
@@ -177,7 +187,8 @@ export function updateCard(prefix, records, {
   if (!el) return;
   el.textContent = format(v);
   el.className = `card-value ${colored ? scoreClass(v) : "score-neutral"}`;
-  if (dateEl) dateEl.textContent = last.day || "";
+  const label = colored ? scoreLabel(v) : null;
+  if (dateEl) dateEl.textContent = [last.day, label].filter(Boolean).join(" · ");
   if (!deltaEl) return;
 
   const baseline = v == null ? null
@@ -203,7 +214,9 @@ export function updateCard(prefix, records, {
 export const SLEEP_STAGES = [
   { code: 1, key: "deep",  label: "Deep",  color: "#4338ca", field: "deep_sleep_duration" },
   { code: 2, key: "light", label: "Light", color: "#38bdf8", field: "light_sleep_duration" },
-  { code: 3, key: "rem",   label: "REM",   color: "#a78bfa", field: "rem_sleep_duration" },
+  // REM was lavender, which a deuteranope confuses with Light's sky blue
+  // (ΔE 5.2); magenta clears every other stage by ΔE 17+.
+  { code: 3, key: "rem",   label: "REM",   color: "#d55181", field: "rem_sleep_duration" },
   { code: 4, key: "awake", label: "Awake", color: "#fbbf24", field: "awake_time" },
 ];
 
@@ -235,8 +248,13 @@ export function hypnogramPoints(period) {
 
 // --- Nightly vitals ---
 
-const HRV_COLOR = "#34d399";
-const HR_COLOR = "#f43f5e";
+const HRV_COLOR = SERIES_BLUE;
+const HR_COLOR = SERIES_ORANGE;
+// On the hypnogram the stage colours own the hue, so the overlays are neutral
+// ink told apart by dash pattern: an orange heart rate line would sit ΔE 11.6
+// from REM's magenta.
+const HRV_OVERLAY = "#e2e4ed";
+const HR_OVERLAY = "#9ca3af";
 
 // A 5-minute series ({timestamp, interval, items}) as chart points. The ring
 // reports null while it has no reading (typically the first half hour), which
@@ -248,12 +266,13 @@ function seriesPoints(series) {
   return series.items.map((y, i) => ({ x: new Date(start + i * step).toISOString(), y }));
 }
 
-function vitalOverlay(label, points, color, axis) {
+function vitalOverlay(label, points, color, axis, borderDash = []) {
   return {
     label,
     data: points,
     yAxisID: axis,
     borderColor: color + "b3",
+    borderDash,
     borderWidth: 1.5,
     pointRadius: 0,
     tension: 0.3,
@@ -291,8 +310,8 @@ export function renderHypnogram(period, state) {
           },
           fill: false,
         },
-        vitalOverlay("HRV", hrv, HRV_COLOR, "yHrv"),
-        vitalOverlay("Heart rate", hr, HR_COLOR, "yHr"),
+        vitalOverlay("HRV", hrv, HRV_OVERLAY, "yHrv"),
+        vitalOverlay("Heart rate", hr, HR_OVERLAY, "yHr", [5, 4]),
       ],
     },
     options: {
@@ -644,11 +663,13 @@ export function renderAll(data, hrData, state) {
     format: (v) => v == null ? "—" : formatDuration(v * 60),
     formatDelta: (d) => `${Math.round(d)}m`,
     better: "lower",
+    colored: false,
   });
   updateCard("spo2", spo2, {
     history: past("spo2"),
     format: (v) => v == null ? "—" : `${v.toFixed(1)}%`,
     formatDelta: (d) => d.toFixed(1),
+    colored: false,
   });
   updateCard("temp", temperature, {
     history: past("temperature"),
@@ -656,6 +677,7 @@ export function renderAll(data, hrData, state) {
     format: (v) => v == null ? "—" : (v > 0 ? `+${v.toFixed(2)}` : v.toFixed(2)),
     formatDelta: (d) => d.toFixed(2),
     better: null,
+    colored: false,
   });
   const vitalsHistory = nightlyVitalsRows(state.history?.sleepPeriods ?? state.sleepPeriods ?? []);
   updateCard("hrv", nightlyVitalsRows(state.sleepPeriods ?? []), {
@@ -669,12 +691,12 @@ export function renderAll(data, hrData, state) {
     type: "line",
     data: {
       datasets: [
-        lineDataset("Readiness", readiness, "#22c55e"),
-        lineDataset("Sleep", sleep, "#6366f1"),
-        lineDataset("Activity", activity, "#f59e0b"),
-        averageDataset("Readiness", past("readiness"), score, "#22c55e", start, 0),
-        averageDataset("Sleep", past("sleep"), score, "#6366f1", start, 1),
-        averageDataset("Activity", past("activity"), score, "#f59e0b", start, 2),
+        lineDataset("Readiness", readiness, SERIES_AQUA),
+        lineDataset("Sleep", sleep, SERIES_BLUE),
+        lineDataset("Activity", activity, SERIES_ORANGE),
+        averageDataset("Readiness", past("readiness"), score, SERIES_AQUA, start, 0),
+        averageDataset("Sleep", past("sleep"), score, SERIES_BLUE, start, 1),
+        averageDataset("Activity", past("activity"), score, SERIES_ORANGE, start, 2),
       ],
     },
     options: {
@@ -692,39 +714,9 @@ export function renderAll(data, hrData, state) {
     type: "line",
     data: {
       datasets: [
-        {
-          label: "Restfulness",
-          data: sleep.map((r) => ({ x: r.day, y: r.contributors?.restfulness ?? null })),
-          borderColor: "#818cf8",
-          backgroundColor: "#818cf822",
-          pointBackgroundColor: sleep.map((r) => scoreColor(r.contributors?.restfulness)),
-          pointRadius: 3,
-          tension: 0.3,
-          spanGaps: true,
-          fill: false,
-        },
-        {
-          label: "Efficiency",
-          data: sleep.map((r) => ({ x: r.day, y: r.contributors?.efficiency ?? null })),
-          borderColor: "#34d399",
-          backgroundColor: "#34d39922",
-          pointBackgroundColor: sleep.map((r) => scoreColor(r.contributors?.efficiency)),
-          pointRadius: 3,
-          tension: 0.3,
-          spanGaps: true,
-          fill: false,
-        },
-        {
-          label: "Sleep Balance",
-          data: readiness.map((r) => ({ x: r.day, y: r.contributors?.sleep_balance ?? null })),
-          borderColor: "#fb923c",
-          backgroundColor: "#fb923c22",
-          pointBackgroundColor: readiness.map((r) => scoreColor(r.contributors?.sleep_balance)),
-          pointRadius: 3,
-          tension: 0.3,
-          spanGaps: true,
-          fill: false,
-        },
+        lineDataset("Restfulness", sleep, SERIES_BLUE, (r) => r.contributors?.restfulness),
+        lineDataset("Efficiency", sleep, SERIES_AQUA, (r) => r.contributors?.efficiency),
+        lineDataset("Sleep Balance", readiness, SERIES_ORANGE, (r) => r.contributors?.sleep_balance),
       ],
     },
     options: {
