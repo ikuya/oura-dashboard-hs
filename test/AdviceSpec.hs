@@ -123,6 +123,18 @@ spec = do
             field "naps" r `shouldBe` Just (A.Number 1)
             field "nap_time_in_bed" r `shouldBe` Just (A.Number 3600)
 
+        it "takes the vitals from the main period, not a nap" $ do
+            let withVitals hrv lowest p = case p of
+                    A.Object o -> A.Object (KM.insert "average_hrv" (A.Number hrv)
+                                            (KM.insert "lowest_heart_rate" (A.Number lowest) o))
+                    other -> other
+            r <- row
+                [ withVitals 45 52 (timed "long_sleep" "a" "2024-01-09T23:41:00+09:00" "2024-01-10T07:05:00+09:00" 26640 1140)
+                , withVitals 30 60 (timed "late_nap" "b" "2024-01-10T14:05:00+09:00" "2024-01-10T14:40:00+09:00" 2100 300) ]
+            field "average_hrv" r `shouldBe` Just (A.Number 45)
+            field "lowest_heart_rate" r `shouldBe` Just (A.Number 52)
+            field "average_breath" r `shouldBe` Just A.Null
+
         it "leaves the clock times empty on a day with a late nap only" $ do
             r <- row [ timed "late_nap" "a" "2024-01-09T18:27:00+09:00" "2024-01-09T19:20:00+09:00" 3180 0 ]
             field "bedtime_start" r `shouldBe` Just A.Null

@@ -76,16 +76,123 @@ export function lineDataset(label, records, color, yField = "score") {
   };
 }
 
-export function updateCard(prefix, records, valueField = "score", formatter = (v) => v == null ? "—" : Math.round(v)) {
+// --- Personal baselines ---
+
+// Today's card is compared with the mean of the BASELINE_DAYS before it, and
+// the daily charts carry an AVERAGE_DAYS trailing mean. Both reach back past
+// the selected range, so loadData() fetches that much more history.
+export const BASELINE_DAYS = 28;
+export const AVERAGE_DAYS = 7;
+
+// A window this sparse (a ring left off for a week) says little about "usual".
+const MIN_BASELINE_VALUES = 7;
+const MIN_AVERAGE_VALUES = 4;
+
+function addDaysStr(day, n) {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function valuesByDay(records, value) {
+  return new Map(records.flatMap((r) => {
+    const v = value(r);
+    return v == null ? [] : [[r.day, v]];
+  }));
+}
+
+// Mean of the values on the `days` days ending at `lastDay`, or null when
+// fewer than `minValues` of them have one.
+function windowMean(byDay, lastDay, days, minValues) {
+  const values = [];
+  for (let k = 0; k < days; k++) {
+    const v = byDay.get(addDaysStr(lastDay, -k));
+    if (v != null) values.push(v);
+  }
+  return values.length < minValues ? null : values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+// The trailing mean as a dashed line over the selected range. `history`
+// reaches AVERAGE_DAYS before `start`, so the line is right at the left edge.
+// `averageOf` ties it to the raw dataset for averageLegend().
+export function averageDataset(label, history, value, color, start, averageOf, extra = {}) {
+  const byDay = valuesByDay(history, value);
+  return {
+    type: "line",
+    label: `${label} (${AVERAGE_DAYS}d avg)`,
+    data: history
+      .filter((r) => r.day >= start)
+      .map((r) => ({ x: r.day, y: windowMean(byDay, r.day, AVERAGE_DAYS, MIN_AVERAGE_VALUES) })),
+    borderColor: color + "99",
+    borderDash: [6, 4],
+    borderWidth: 1.5,
+    pointRadius: 0,
+    tension: 0.3,
+    spanGaps: true,
+    fill: false,
+    averageOf,
+    ...extra,
+  };
+}
+
+// A legend that lists only the raw series and shows/hides each together with
+// its average, so the averages do not double the legend.
+function averageLegend(base = {}) {
+  return {
+    position: "top",
+    ...base,
+    labels: { filter: (item, data) => data.datasets[item.datasetIndex].averageOf == null },
+    onClick: (_e, item, legend) => {
+      const chart = legend.chart;
+      const visible = !chart.isDatasetVisible(item.datasetIndex);
+      chart.data.datasets.forEach((ds, i) => {
+        if (i === item.datasetIndex || ds.averageOf === item.datasetIndex) {
+          chart.setDatasetVisibility(i, visible);
+        }
+      });
+      chart.update();
+    },
+  };
+}
+
+const neutralFormat = (v) => (v == null ? "—" : Math.round(v));
+
+// The latest record's value, and how far it sits from the mean of the
+// BASELINE_DAYS before it. `better` colours the difference: "higher", "lower",
+// or null where neither direction is good (temperature deviation).
+export function updateCard(prefix, records, {
+  value = (r) => r.score,
+  format = neutralFormat,
+  formatDelta = (d) => String(Math.round(d)),
+  better = "higher",
+  colored = true,
+  history = records,
+} = {}) {
   if (!records || records.length === 0) return;
   const last = records[records.length - 1];
-  const v = last[valueField] ?? last.score ?? null;
+  const v = value(last) ?? null;
   const el = document.getElementById(`card-${prefix}`);
   const dateEl = document.getElementById(`card-${prefix}-date`);
+  const deltaEl = document.getElementById(`card-${prefix}-delta`);
   if (!el) return;
-  el.textContent = formatter(v);
-  el.className = `card-value ${scoreClass(v)}`;
+  el.textContent = format(v);
+  el.className = `card-value ${colored ? scoreClass(v) : "score-neutral"}`;
   if (dateEl) dateEl.textContent = last.day || "";
+  if (!deltaEl) return;
+
+  const baseline = v == null ? null
+    : windowMean(valuesByDay(history, value), addDaysStr(last.day, -1), BASELINE_DAYS, MIN_BASELINE_VALUES);
+  if (baseline == null) {
+    deltaEl.textContent = "";
+    return;
+  }
+  const shown = formatDelta(v - baseline);
+  const zero = Number.parseFloat(shown) === 0;
+  const sign = zero ? "±" : v > baseline ? "+" : "";
+  const arrow = zero ? "" : v > baseline ? " ↑" : " ↓";
+  const good = better === "higher" ? v > baseline : better === "lower" ? v < baseline : null;
+  deltaEl.textContent = `${sign}${shown}${arrow} vs ${BASELINE_DAYS}d avg`;
+  deltaEl.className = `card-delta ${zero || good == null ? "" : good ? "delta-good" : "delta-bad"}`;
 }
 
 
@@ -126,25 +233,71 @@ export function hypnogramPoints(period) {
   return points;
 }
 
+// --- Nightly vitals ---
+
+const HRV_COLOR = "#34d399";
+const HR_COLOR = "#f43f5e";
+
+// A 5-minute series ({timestamp, interval, items}) as chart points. The ring
+// reports null while it has no reading (typically the first half hour), which
+// stays a gap rather than being bridged.
+function seriesPoints(series) {
+  if (!series?.timestamp || !Array.isArray(series.items)) return [];
+  const start = new Date(series.timestamp).getTime();
+  const step = (series.interval ?? 300) * 1000;
+  return series.items.map((y, i) => ({ x: new Date(start + i * step).toISOString(), y }));
+}
+
+function vitalOverlay(label, points, color, axis) {
+  return {
+    label,
+    data: points,
+    yAxisID: axis,
+    borderColor: color + "b3",
+    borderWidth: 1.5,
+    pointRadius: 0,
+    tension: 0.3,
+    fill: false,
+  };
+}
+
+// A right-hand axis for an overlay, hidden when the period has no readings
+// (most naps), so an empty axis does not eat into the plot.
+function overlayAxis(title, points) {
+  return {
+    position: "right",
+    display: points.some((p) => p.y != null),
+    grid: { drawOnChartArea: false },
+    title: { display: true, text: title },
+  };
+}
+
 export function renderHypnogram(period, state) {
+  const hrv = seriesPoints(period?.hrv);
+  const hr = seriesPoints(period?.heart_rate);
   makeChart("chart-sleep-stages", state.charts, {
     type: "line",
     data: {
-      datasets: [{
-        label: "Sleep stage",
-        data: hypnogramPoints(period),
-        stepped: "after",
-        pointRadius: 0,
-        borderWidth: 2,
-        borderColor: "#6b7280",
-        segment: {
-          borderColor: (ctx) => STAGE_BY_CODE[ctx.p0.parsed.y]?.color ?? "#6b7280",
+      datasets: [
+        {
+          label: "Sleep stage",
+          data: hypnogramPoints(period),
+          stepped: "after",
+          pointRadius: 0,
+          borderWidth: 2,
+          borderColor: "#6b7280",
+          segment: {
+            borderColor: (ctx) => STAGE_BY_CODE[ctx.p0.parsed.y]?.color ?? "#6b7280",
+          },
+          fill: false,
         },
-        fill: false,
-      }],
+        vitalOverlay("HRV", hrv, HRV_COLOR, "yHrv"),
+        vitalOverlay("Heart rate", hr, HR_COLOR, "yHr"),
+      ],
     },
     options: {
       responsive: true,
+      interaction: { mode: "x", intersect: false },
       scales: {
         x: TIME_SCALE_MINUTE,
         // Ticks have to land on whole phase codes for the callback to name
@@ -155,11 +308,22 @@ export function renderHypnogram(period, state) {
           grid: { color: "#2a2d3a" },
           ticks: { stepSize: 1, callback: (v) => STAGE_BY_CODE[v]?.label ?? "" },
         },
+        yHrv: overlayAxis("HRV (ms)", hrv),
+        yHr: overlayAxis("HR (bpm)", hr),
       },
       plugins: {
-        legend: { display: false },
+        // The stages are named on the axis; the legend is for toggling the overlays.
+        legend: {
+          position: "top",
+          labels: { filter: (item, data) => item.datasetIndex > 0 && data.datasets[item.datasetIndex].data.length > 0 },
+        },
         tooltip: {
-          callbacks: { label: (ctx) => STAGE_BY_CODE[ctx.parsed.y]?.label ?? "" },
+          filter: (item) => item.parsed.y != null,
+          callbacks: {
+            label: (ctx) => ctx.datasetIndex === 0
+              ? STAGE_BY_CODE[ctx.parsed.y]?.label ?? ""
+              : `${ctx.dataset.label}: ${Math.round(ctx.parsed.y)} ${ctx.dataset.yAxisID === "yHrv" ? "ms" : "bpm"}`,
+          },
         },
       },
       animation: false,
@@ -245,12 +409,17 @@ function median(values) {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+function groupByDay(periods) {
+  const byDay = new Map();
+  for (const p of periods) byDay.set(p.day, [...(byDay.get(p.day) ?? []), p]);
+  return byDay;
+}
+
 // One row per day: the main period as the bar, the other periods as naps.
 // `main` is null on a day with naps only, or whose main period's timestamps
 // do not parse; such a day gets a nap marker but no bar.
 export function bedtimeWakeRows(periods) {
-  const byDay = new Map();
-  for (const p of periods) byDay.set(p.day, [...(byDay.get(p.day) ?? []), p]);
+  const byDay = groupByDay(periods);
   return [...byDay.keys()].sort().map((day) => {
     const all = byDay.get(day);
     const main = mainPeriod(all) ?? null;
@@ -376,20 +545,125 @@ export function renderBedtimeWake(periods, state) {
   });
 }
 
+// One point per night from the main period alone: a nap's HRV and lowest heart
+// rate are not comparable with a night's (and are often missing).
+export function nightlyVitalsRows(periods) {
+  const byDay = groupByDay(periods);
+  return [...byDay.keys()].sort().flatMap((day) => {
+    const main = mainPeriod(byDay.get(day));
+    return main ? [{
+      day,
+      hrv: main.average_hrv ?? null,
+      lowest: main.lowest_heart_rate ?? null,
+      average: main.average_heart_rate ?? null,
+      breath: main.average_breath ?? null,
+    }] : [];
+  });
+}
+
+export function renderNightlyVitals(periods, historyRows, state) {
+  const rows = nightlyVitalsRows(periods);
+  const byDay = new Map(rows.map((r) => [r.day, r]));
+  const line = (label, field, color, axis, extra = {}) => ({
+    label,
+    data: rows.map((r) => ({ x: r.day, y: r[field] })),
+    yAxisID: axis,
+    borderColor: color,
+    backgroundColor: color + "22",
+    pointRadius: 3,
+    tension: 0.3,
+    spanGaps: true,
+    fill: false,
+    ...extra,
+  });
+
+  makeChart("chart-nightly-vitals", state.charts, {
+    type: "line",
+    data: {
+      datasets: [
+        line("Average HRV", "hrv", HRV_COLOR, "yHrv"),
+        line("Lowest HR", "lowest", HR_COLOR, "yHr"),
+        line("Average HR", "average", HR_COLOR, "yHr",
+             { borderDash: [2, 3], borderWidth: 1, pointRadius: 0 }),
+        averageDataset("Average HRV", historyRows, (r) => r.hrv, HRV_COLOR, state.rangeStart, 0,
+                       { yAxisID: "yHrv" }),
+        averageDataset("Lowest HR", historyRows, (r) => r.lowest, HR_COLOR, state.rangeStart, 1,
+                       { yAxisID: "yHr" }),
+      ],
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        x: TIME_SCALE,
+        yHrv: { position: "left", grid: { color: "#2a2d3a" }, title: { display: true, text: "HRV (ms)" } },
+        yHr: { position: "right", grid: { drawOnChartArea: false }, title: { display: true, text: "HR (bpm)" } },
+      },
+      plugins: {
+        legend: averageLegend(),
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y == null ? "—" : Math.round(ctx.parsed.y)} ${ctx.dataset.yAxisID === "yHrv" ? "ms" : "bpm"}`,
+            // The respiratory rate has a scale of its own (~14/min) and would
+            // flatten either axis, so it is reported here rather than drawn.
+            footer: (items) => {
+              const breath = byDay.get(items[0]?.raw?.x)?.breath;
+              return breath == null ? "" : `Breath: ${breath.toFixed(1)} /min`;
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+// `data` and `state.sleepPeriods` cover the selected range; `state.history`
+// holds the same series reaching back far enough for the baselines.
 export function renderAll(data, hrData, state) {
   const { sleep = [], readiness = [], activity = [], stress = [],
           spo2 = [], temperature = [], resilience = [],
           cardiovascular_age = [] } = data;
+  const history = state.history?.metrics ?? data;
+  const start = state.rangeStart;
+  const past = (metric) => history[metric] ?? [];
+  const score = (r) => r.score;
+  // Oura reports stress_high in seconds (in 15-minute steps); the dashboard
+  // shows minutes. The stored score is the same seconds value.
+  const stressMinutes = (r) => {
+    const seconds = r.stress_high ?? r.score;
+    return seconds == null ? null : seconds / 60;
+  };
+  const tempDev = (r) => r.temperature_deviation ?? r.score;
 
-  updateCard("sleep", sleep);
-  updateCard("readiness", readiness);
-  updateCard("activity", activity);
-  updateCard("stress", stress, "stress_high",
-    (v) => v == null ? "—" : `${Math.round(v)}m`);
-  updateCard("spo2", spo2, "score",
-    (v) => v == null ? "—" : `${v.toFixed(1)}%`);
-  updateCard("temp", temperature, "temperature_deviation",
-    (v) => v == null ? "—" : (v > 0 ? `+${v.toFixed(2)}` : v.toFixed(2)));
+  updateCard("sleep", sleep, { history: past("sleep") });
+  updateCard("readiness", readiness, { history: past("readiness") });
+  updateCard("activity", activity, { history: past("activity") });
+  updateCard("stress", stress, {
+    history: past("stress"),
+    value: stressMinutes,
+    format: (v) => v == null ? "—" : formatDuration(v * 60),
+    formatDelta: (d) => `${Math.round(d)}m`,
+    better: "lower",
+  });
+  updateCard("spo2", spo2, {
+    history: past("spo2"),
+    format: (v) => v == null ? "—" : `${v.toFixed(1)}%`,
+    formatDelta: (d) => d.toFixed(1),
+  });
+  updateCard("temp", temperature, {
+    history: past("temperature"),
+    value: tempDev,
+    format: (v) => v == null ? "—" : (v > 0 ? `+${v.toFixed(2)}` : v.toFixed(2)),
+    formatDelta: (d) => d.toFixed(2),
+    better: null,
+  });
+  const vitalsHistory = nightlyVitalsRows(state.history?.sleepPeriods ?? state.sleepPeriods ?? []);
+  updateCard("hrv", nightlyVitalsRows(state.sleepPeriods ?? []), {
+    history: vitalsHistory,
+    value: (r) => r.hrv,
+    format: (v) => v == null ? "—" : `${Math.round(v)}ms`,
+    colored: false,
+  });
 
   makeChart("chart-scores", state.charts, {
     type: "line",
@@ -398,6 +672,9 @@ export function renderAll(data, hrData, state) {
         lineDataset("Readiness", readiness, "#22c55e"),
         lineDataset("Sleep", sleep, "#6366f1"),
         lineDataset("Activity", activity, "#f59e0b"),
+        averageDataset("Readiness", past("readiness"), score, "#22c55e", start, 0),
+        averageDataset("Sleep", past("sleep"), score, "#6366f1", start, 1),
+        averageDataset("Activity", past("activity"), score, "#f59e0b", start, 2),
       ],
     },
     options: {
@@ -407,7 +684,7 @@ export function renderAll(data, hrData, state) {
         x: TIME_SCALE,
         y: { min: 0, max: 100, grid: { color: "#2a2d3a" } },
       },
-      plugins: { legend: { position: "top" } },
+      plugins: { legend: averageLegend() },
     },
   });
 
@@ -463,22 +740,32 @@ export function renderAll(data, hrData, state) {
 
   renderStageDurations(state.sleepPeriods ?? [], state);
   renderBedtimeWake(state.sleepPeriods ?? [], state);
+  renderNightlyVitals(state.sleepPeriods ?? [], vitalsHistory, state);
 
   makeChart("chart-stress", state.charts, {
     type: "bar",
     data: {
       datasets: [{
-        label: "High stress (min)",
-        data: stress.map((r) => ({ x: r.day, y: r.stress_high ?? null })),
+        label: "High stress",
+        data: stress.map((r) => ({ x: r.day, y: stressMinutes(r) })),
         backgroundColor: "#ef444488",
         borderColor: "#ef4444",
         borderWidth: 1,
-      }],
+      },
+      averageDataset("High stress", past("stress"), stressMinutes, "#fca5a5", start, 0)],
     },
     options: {
       responsive: true,
+      interaction: { mode: "index", intersect: false },
       scales: { x: TIME_SCALE, y: { grid: { color: "#2a2d3a" } } },
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y == null ? "—" : formatDuration(ctx.parsed.y * 60)}`,
+          },
+        },
+      },
     },
   });
 
@@ -505,10 +792,12 @@ export function renderAll(data, hrData, state) {
           backgroundColor: "transparent",
           order: 1,
         },
+        averageDataset("Steps", past("activity"), (r) => r.steps, "#fcd34d", start, 0, { order: 0 }),
       ],
     },
     options: {
       responsive: true,
+      interaction: { mode: "index", intersect: false },
       scales: {
         x: TIME_SCALE,
         y: {
@@ -522,9 +811,9 @@ export function renderAll(data, hrData, state) {
         tooltip: {
           callbacks: {
             label: (ctx) =>
-              ctx.datasetIndex === 0
-                ? `Steps: ${ctx.parsed.y?.toLocaleString() ?? "—"}`
-                : "Goal: 8,000",
+              ctx.datasetIndex === 1
+                ? "Goal: 8,000"
+                : `${ctx.dataset.label}: ${ctx.parsed.y == null ? "—" : Math.round(ctx.parsed.y).toLocaleString()}`,
           },
         },
       },

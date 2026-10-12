@@ -140,9 +140,9 @@ getHeartrate (DateRange start end) = do
 
 -- | The fields of a sleep period the JSON API exposes. A stored record is
 -- ~3KB, most of it the 30-second phase and movement strings that no chart
--- reads, so reads project it down: 180 days is ~160KB this way against ~900KB
--- raw. The whole record stays in @data_json@, so widening this list later
--- needs no re-sync.
+-- reads, so reads project it down. The 5-minute @hrv@ / @heart_rate@ series
+-- the hypnogram overlays are the bulk of what is left. The whole record stays
+-- in @data_json@, so widening this list later needs no re-sync.
 sleepPeriodFields :: [Text]
 sleepPeriodFields =
     [ "id", "day", "type", "period"
@@ -151,6 +151,8 @@ sleepPeriodFields =
     , "deep_sleep_duration", "light_sleep_duration", "rem_sleep_duration"
     , "awake_time", "total_sleep_duration", "time_in_bed"
     , "efficiency", "latency"
+    , "average_hrv", "average_heart_rate", "lowest_heart_rate", "average_breath"
+    , "hrv", "heart_rate"
     ]
 
 -- | Period types the charts ignore: @deleted@ is the tombstone for a sleep the

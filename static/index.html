@@ -34,31 +34,43 @@
       <div class="card-label">Readiness</div>
       <div class="card-value score-neutral" id="card-readiness">—</div>
       <div class="card-sub" id="card-readiness-date"></div>
+      <div class="card-delta" id="card-readiness-delta"></div>
     </div>
     <div class="card">
       <div class="card-label">Sleep</div>
       <div class="card-value score-neutral" id="card-sleep">—</div>
       <div class="card-sub" id="card-sleep-date"></div>
+      <div class="card-delta" id="card-sleep-delta"></div>
     </div>
     <div class="card">
       <div class="card-label">Activity</div>
       <div class="card-value score-neutral" id="card-activity">—</div>
       <div class="card-sub" id="card-activity-date"></div>
+      <div class="card-delta" id="card-activity-delta"></div>
     </div>
     <div class="card">
       <div class="card-label">Stress (high)</div>
       <div class="card-value score-neutral" id="card-stress">—</div>
       <div class="card-sub" id="card-stress-date"></div>
+      <div class="card-delta" id="card-stress-delta"></div>
     </div>
     <div class="card">
       <div class="card-label">SpO2</div>
       <div class="card-value score-neutral" id="card-spo2">—</div>
       <div class="card-sub" id="card-spo2-date"></div>
+      <div class="card-delta" id="card-spo2-delta"></div>
     </div>
     <div class="card">
       <div class="card-label">Temp. Dev.</div>
       <div class="card-value score-neutral" id="card-temp">—</div>
       <div class="card-sub" id="card-temp-date"></div>
+      <div class="card-delta" id="card-temp-delta"></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Night HRV</div>
+      <div class="card-value score-neutral" id="card-hrv">—</div>
+      <div class="card-sub" id="card-hrv-date"></div>
+      <div class="card-delta" id="card-hrv-delta"></div>
     </div>
   </div>
 
@@ -108,6 +120,13 @@
     <div class="chart-card">
       <h2>Bedtime / Wake</h2>
       <canvas id="chart-bedtime-wake" style="max-height:280px;"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-row">
+    <div class="chart-card">
+      <h2>Nightly HRV &amp; Heart Rate</h2>
+      <canvas id="chart-nightly-vitals"></canvas>
     </div>
   </div>
 

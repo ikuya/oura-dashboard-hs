@@ -1,6 +1,6 @@
 import { apiFetch } from "./api.js";
 import { localDateStr, todayStr, daysAgoStr, setStatus, mainPeriod } from "./helpers.js";
-import { renderAll, renderHypnogram } from "./charts.js";
+import { renderAll, renderHypnogram, BASELINE_DAYS, AVERAGE_DAYS } from "./charts.js";
 
 // Shared across advice IIFEs
 let sharedAdviceRaw = "";
@@ -14,7 +14,9 @@ const state = {
   days: 14,
   charts: {},
   hrMode: "7d",
+  rangeStart: null,   // first day of the selected range
   sleepPeriods: [],   // the loaded range, ascending by bedtime_start
+  history: null,      // { metrics, sleepPeriods } reaching back past the range for the baselines
   sleepDay: null,     // selected night; null means "the latest one loaded"
   sleepPeriodId: null, // selected period within that night; null means the main sleep
   hrDate: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })(),
@@ -41,6 +43,10 @@ async function loadSyncStatus() {
 async function loadData() {
   const end = todayStr();
   const start = daysAgoStr(state.days);
+  // The baselines need history before the range: the card compares today with
+  // the BASELINE_DAYS before it, and the moving average at the range's first
+  // day reaches AVERAGE_DAYS back.
+  const historyStart = daysAgoStr(Math.max(state.days + AVERAGE_DAYS, BASELINE_DAYS + 1));
   const hrStart = state.hrMode === "1d" ? state.hrDate : daysAgoStr(7);
   const hrEnd = state.hrMode === "1d" ? state.hrDate : end;
 
@@ -48,15 +54,21 @@ async function loadData() {
 
   try {
     const [metricsRes, hrRes, sleepRes] = await Promise.all([
-      apiFetch(`/api/metrics?start=${start}&end=${end}`),
+      apiFetch(`/api/metrics?start=${historyStart}&end=${end}`),
       apiFetch(`/api/heartrate?start=${hrStart}&end=${hrEnd}`),
-      apiFetch(`/api/sleep_periods?start=${start}&end=${end}`),
+      apiFetch(`/api/sleep_periods?start=${historyStart}&end=${end}`),
     ]);
 
     if (!metricsRes.ok) throw new Error(`Metrics fetch failed: ${metricsRes.status}`);
-    const data = await metricsRes.json();
+    const metricsHistory = await metricsRes.json();
     const hrData = hrRes.ok ? await hrRes.json() : [];
-    state.sleepPeriods = sleepRes.ok ? await sleepRes.json() : [];
+    const sleepHistory = sleepRes.ok ? await sleepRes.json() : [];
+    const inRange = (r) => r.day >= start;
+    const data = Object.fromEntries(
+      Object.entries(metricsHistory).map(([m, rows]) => [m, rows.filter(inRange)]));
+    state.rangeStart = start;
+    state.history = { metrics: metricsHistory, sleepPeriods: sleepHistory };
+    state.sleepPeriods = sleepHistory.filter(inRange);
 
     renderAll(data, hrData, state);
     renderSleepStages();

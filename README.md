@@ -19,6 +19,11 @@ has been added since — the sleep stage charts — is new on both sides.
   selected range
 - **Bedtime / wake** — per-day bars from bedtime to wake on a clock axis, with
   sleep onset, nap markers and range medians
+- **Nightly HRV & heart rate** — per-night average HRV, lowest and average heart
+  rate (respiratory rate in the tooltip), and the 5-minute HRV / heart rate
+  curves overlaid on the hypnogram
+- **Personal baselines** — each card shows how the latest value compares with
+  the 28 days before it, and the daily charts carry a dashed 7-day moving average
 - Incremental sync (only fetches dates not yet stored locally)
 - **Advice** — analyzes the last 14 days with the `claude` CLI and shows a
   Japanese health summary; saved to the DB and browsable

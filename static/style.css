@@ -112,6 +112,9 @@ header h1 { font-size: 20px; font-weight: 700; flex: 1; }
 .card-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
 .card-value { font-size: 32px; font-weight: 700; }
 .card-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.card-delta { font-size: 12px; color: var(--muted); margin-top: 2px; min-height: 1em; }
+.card-delta.delta-good { color: var(--green); }
+.card-delta.delta-bad { color: var(--red); }
 .score-green { color: var(--green); }
 .score-yellow { color: var(--yellow); }
 .score-red { color: var(--red); }

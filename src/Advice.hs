@@ -75,6 +75,7 @@ adviceSystemPrompt = intercalate "\n"
     , "ユーザーから過去14日間のOura Ringデータ（睡眠、準備度、活動量、ストレス、血中酸素濃度、体温偏差、回復力、VO2 Max、心血管年齢）が提供されます。"
     , "`sleep_periods` は各日の睡眠段階の実時間（秒）です。同じ日の本睡と仮眠を合算しています。"
     , "`bedtime_start`（就床）・`sleep_onset`（入眠）・`bedtime_end`（起床）はその日の本睡の時刻（記録地の時刻、HH:MM）です。`naps` は仮眠の回数、`nap_time_in_bed` はその合計時間（秒）です。"
+    , "`average_hrv`（夜間平均HRV、ms）・`lowest_heart_rate`（最低心拍、bpm）・`average_heart_rate`（平均心拍、bpm）・`average_breath`（平均呼吸数、回/分）もその日の本睡の値です。"
     , ""
     , "## 役割"
     , "1. データを客観的に分析し、現在の健康状態を簡潔に要約する"
@@ -150,7 +151,9 @@ sleepStageTotals periods =
         [ (day, [r])
         | r <- periods, Just day <- [jsonText =<< jsonLookup "day" r] ]
 
--- | The main period's clock times plus the nap count and their time in bed.
+-- | The main period's clock times and vitals, plus the nap count and their
+-- time in bed. The vitals are the main period's alone: a nap's HRV or lowest
+-- heart rate is not comparable with a night's.
 sleepTimes :: [A.Value] -> [(A.Key, A.Value)]
 sleepTimes rows =
     [ ("bedtime_start", A.toJSON (clockAt 0 =<< start))
@@ -159,12 +162,20 @@ sleepTimes rows =
     , ("naps",            A.toJSON (length naps))
     , ("nap_time_in_bed", A.toJSON (sum (map (periodSeconds "time_in_bed") naps)))
     ]
+    ++ [ (K.fromText f, fromMaybe A.Null (jsonLookup f =<< primary))
+       | f <- sleepVitalFields ]
   where
     primary = mainSleepPeriod rows
     naps = filter ((/= primary) . Just) rows
     str k = jsonText =<< jsonLookup k =<< primary
     start = str "bedtime_start"
     latency = maybe 0 (periodSeconds "latency") primary
+
+-- | Per-night vitals of a sleep period. The 5-minute series behind them stay
+-- out of the prompt for the same reason the phase timeline does.
+sleepVitalFields :: [Text]
+sleepVitalFields =
+    ["average_hrv", "lowest_heart_rate", "average_heart_rate", "average_breath"]
 
 -- | The long sleep if the day has one, otherwise its longest period by time in
 -- bed (the first of equals). A late nap is never the night's sleep, so a day

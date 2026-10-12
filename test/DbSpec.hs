@@ -240,6 +240,19 @@ spec = do
             field "sleep_phase_30_sec" (headEx rows) `shouldBe` Nothing
             field "movement_30_sec" (headEx rows) `shouldBe` Nothing
 
+        it "keeps the nightly vitals and their 5-minute series" $ do
+            let series = A.object ["interval" .= (300 :: Int), "items" .= [A.Null, A.Number 42]]
+            rows <- runMem $ do
+                _ <- upsertSleepPeriods
+                    [ (sleepPeriod "a" "2024-01-01" "2024-01-01T01:00:00+09:00" "long_sleep")
+                        `withField` ("average_hrv", A.Number 43)
+                        `withField` ("lowest_heart_rate", A.Number 52)
+                        `withField` ("hrv", series) ]
+                getSleepPeriods (DateRange "2024-01-01" "2024-01-01")
+            field "average_hrv" (headEx rows) `shouldBe` Just (A.Number 43)
+            field "lowest_heart_rate" (headEx rows) `shouldBe` Just (A.Number 52)
+            field "hrv" (headEx rows) `shouldBe` Just series
+
     describe "get_sync_status" $ do
         it "reports all metrics" $ do
             status <- runMem getSyncStatus
