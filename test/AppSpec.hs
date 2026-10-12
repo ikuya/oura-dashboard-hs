@@ -83,6 +83,21 @@ spec = do
             request $ setMethod "POST" >> setUrl SyncR
             statusIs 403
 
+    describe "caching" $ withApp $ do
+        -- The frontend is ES modules at fixed URLs; a long max-age would keep
+        -- the browser on old modules after a deploy.
+        it "static files must be revalidated" $ do
+            login
+            get ("/static/charts.js" :: Text)
+            statusIs 200
+            assertHeader "Cache-Control" "no-cache"
+
+        it "the dashboard page must be revalidated" $ do
+            login
+            get HomeR
+            statusIs 200
+            assertHeader "Cache-Control" "no-cache"
+
     describe "metrics" $ withApp $ do
         it "empty metrics returns 200 object" $ do
             login

@@ -30,6 +30,8 @@ import Import
 import Language.Haskell.TH.Syntax           (qLocation)
 import Network.HTTP.Client.TLS              (getGlobalManager)
 import Network.Wai (Middleware)
+import WaiAppStatic.Types                   (MaxAge (NoCache), ssMaxAge)
+import Yesod.Static                         (Static (..))
 import Network.Wai.Handler.Warp             (Settings, defaultSettings,
                                              defaultShouldDisplayException,
                                              runSettings, setHost,
@@ -56,6 +58,16 @@ import Handler.Advice
 -- of the call to mkYesodData which occurs in Foundation.hs. Please see the
 -- comments there for more details.
 mkYesodDispatch "App" resourcesApp
+
+-- | Serve static files with @Cache-Control: no-cache@ instead of yesod-static's
+-- one-year max-age. The frontend is plain ES modules imported by fixed URLs
+-- (@./charts.js@), so nothing busts that cache: after a deploy the browser
+-- kept running the old modules against the new index.html until a hard
+-- reload. With no-cache it revalidates each file by ETag and gets a 304 when
+-- nothing changed. The ETags of 'static' are computed once at startup, so a
+-- change shows up after a restart (as with any other code change).
+revalidating :: Static -> Static
+revalidating (Static settings) = Static settings { ssMaxAge = NoCache }
 
 -- | This function allocates resources (such as a database connection pool),
 -- performs initialization and returns a foundation datatype value. This is also
@@ -84,7 +96,7 @@ makeFoundation appSettings = do
     appAccessLoggerSet <- case appAccessLogFile appSettings of
         Nothing -> return loggerSet'
         path    -> newAppLoggerSet path
-    appStatic <-
+    appStatic <- revalidating <$>
         (if appMutableStatic appSettings then staticDevel else static)
         (appStaticDir appSettings)
 

@@ -14,9 +14,8 @@
   検証用途なら `config/test-settings.yml` のハッシュ（平文は `test-password`）を流用するのが
   速い。新規生成は README.md の手順で（python の `bcrypt` モジュールは入っていない）
 - 動作確認は本番 `oura.db` を避け、`YESOD_SQLITE_DATABASE` に複製を指定する
-- `static/*.js` の変更はブラウザの通常リロードでは反映されない（素の ES モジュール
-  ＋ yesod-static のキャッシュヘッダ）。`index.html` だけ更新されるため「枠は出るが
-  中身が空」というサーバ側の不具合に見える。`Ctrl+Shift+R` が必要。配信内容そのものの
-  確認は `fetch(url, {cache:"reload"})` が速い。フロント変更を伴う作業は、完了報告にも
-  ハードリロードを明記する
+- `static/*` と `index.html` は `Cache-Control: no-cache` で配信している
+  （`Application.revalidating`）ので、通常リロードで反映される。ただし ETag は起動時に
+  計算されるため、`static/*.js` を変えたらサーバの再起動が必要。再起動前の古い
+  ブラウザキャッシュ（1 年 max-age 時代のもの）が残っていれば一度だけ `Ctrl+Shift+R`
 
