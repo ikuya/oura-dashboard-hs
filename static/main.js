@@ -321,6 +321,71 @@ document.getElementById("hr-next-day").addEventListener("click", () => {
   renderSleepStages = render;
 })();
 
+// --- Chart full screen ---
+// Each chart card gets a button that opens it over the whole page. Where the
+// browser allows it (Android Chrome) the card also goes full screen and turns
+// landscape; iOS Safari allows neither, so there the card only covers the page
+// and the phone is turned by hand. Chart.js follows the box size by itself.
+// A history entry makes the back gesture close the card, not leave the page.
+(function () {
+  let expanded = null;
+
+  // A reload keeps the entry pushed below, with no card open to close.
+  if (history.state?.chartExpanded) history.replaceState(null, "");
+
+  function setButton(card, open) {
+    const btn = card.querySelector(".chart-expand-btn");
+    btn.textContent = open ? "✕" : "⤢";
+    btn.setAttribute("aria-label", open ? "閉じる" : "全画面で表示");
+  }
+
+  function open(card) {
+    expanded = card;
+    card.classList.add("expanded");
+    document.body.classList.add("chart-expanded");
+    setButton(card, true);
+    history.pushState({ chartExpanded: true }, "");
+    if (card.requestFullscreen) {
+      card.requestFullscreen()
+        .then(() => screen.orientation?.lock?.("landscape"))
+        .catch(() => {});
+    }
+  }
+
+  // Runs on popstate; everything else that closes the card goes through
+  // history.back() so the pushed entry is popped too.
+  function close() {
+    if (!expanded) return;
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    expanded.classList.remove("expanded");
+    document.body.classList.remove("chart-expanded");
+    setButton(expanded, false);
+    expanded = null;
+  }
+
+  for (const card of document.querySelectorAll(".chart-card")) {
+    if (!card.querySelector(".chart-box")) continue;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chart-expand-btn";
+    btn.addEventListener("click", () => (expanded === card ? history.back() : open(card)));
+    const hint = document.createElement("p");
+    hint.className = "chart-expand-hint";
+    hint.textContent = "横向きにすると広く表示できます";
+    card.append(btn, hint);
+    setButton(card, false);
+  }
+
+  window.addEventListener("popstate", close);
+  // Leaving full screen (Esc, Android's back gesture) closes the card as well.
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement && expanded && history.state?.chartExpanded) history.back();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && expanded && !document.fullscreenElement) history.back();
+  });
+})();
+
 // --- Advice button ---
 (function () {
   const adviceBtn = document.getElementById("advice-btn");

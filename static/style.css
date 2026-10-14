@@ -139,8 +139,9 @@ header h1 { font-size: 20px; font-weight: 700; flex: 1; }
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 16px;
+  position: relative;
 }
-.chart-card h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+.chart-card h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em; padding-right: 32px; }
 /* Charts fill their box (maintainAspectRatio: false), so the height is set
    here. Phones get taller boxes: they are short on width, not on scroll. */
 .chart-box { position: relative; height: 220px; }
@@ -151,6 +152,41 @@ header h1 { font-size: 20px; font-weight: 700; flex: 1; }
   .chart-box.tall { height: 340px; }
   .chart-box.short { height: 140px; }
 }
+
+/* Full-screen chart (main.js "Chart full screen") */
+.chart-expand-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.chart-card.expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  border: none;
+  border-radius: 0;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+           max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+}
+.chart-card.expanded .chart-box { flex: 1; height: auto; min-height: 0; }
+.chart-card.expanded .chart-expand-btn {
+  top: max(10px, env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
+}
+body.chart-expanded { overflow: hidden; }
+.chart-expand-hint { display: none; font-size: 12px; color: var(--muted); text-align: center; margin-top: 8px; }
+@media (orientation: portrait) { .chart-card.expanded .chart-expand-hint { display: block; } }
 
 /* HTML legend above the chart box (charts.js withHtmlLegend) */
 .chart-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 6px; margin-bottom: 8px; }
