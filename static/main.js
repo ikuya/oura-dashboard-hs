@@ -1,6 +1,7 @@
 import { apiFetch } from "./api.js";
-import { localDateStr, todayStr, daysAgoStr, setStatus, mainPeriod } from "./helpers.js";
+import { localDateStr, todayStr, daysAgoStr, setStatus, mainPeriod, syncFreshness, formatAge } from "./helpers.js";
 import { renderAll, renderHypnogram, BASELINE_DAYS, AVERAGE_DAYS } from "./charts.js";
+import { dailyCsvRows, downloadCsv } from "./export.js";
 
 // Shared across advice IIFEs
 let sharedAdviceRaw = "";
@@ -15,6 +16,8 @@ const state = {
   charts: {},
   hrMode: "7d",
   rangeStart: null,   // first day of the selected range
+  rangeEnd: null,     // last day of the selected range (today when loaded)
+  rangeData: null,    // the loaded range's daily metrics, keyed by metric
   sleepPeriods: [],   // the loaded range, ascending by bedtime_start
   history: null,      // { metrics, sleepPeriods } reaching back past the range for the baselines
   sleepDay: null,     // selected night; null means "the latest one loaded"
@@ -22,11 +25,33 @@ const state = {
   hrDate: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })(),
 };
 
+// --- Sync freshness ---
+function renderSyncFreshness(status) {
+  const el = document.getElementById("sync-freshness");
+  const { level, hours, lagging } = syncFreshness(status);
+  el.className = `sync-freshness ${level}`;
+  if (hours == null) {
+    el.textContent = "Never synced — press Sync";
+    return;
+  }
+  if (level === "fresh") {
+    el.textContent = `Last sync ${formatAge(hours)} ago`;
+    return;
+  }
+  // When only some metrics are behind, the others did sync recently, so name
+  // the lagging ones rather than call it the last sync.
+  const partial = lagging.length < Object.values(status).filter((v) => v.last_synced_at).length;
+  el.textContent = partial
+    ? `⚠ ${lagging.join(", ")} not synced for ${formatAge(hours)} — press Sync`
+    : `⚠ Last sync ${formatAge(hours)} ago — press Sync`;
+}
+
 // --- Sync status table ---
 async function loadSyncStatus() {
   try {
     const res = await apiFetch("/api/sync/status");
     const status = await res.json();
+    renderSyncFreshness(status);
     const table = document.getElementById("sync-status-table");
     table.innerHTML = Object.entries(status)
       .map(([m, v]) => {
@@ -67,6 +92,8 @@ async function loadData() {
     const data = Object.fromEntries(
       Object.entries(metricsHistory).map(([m, rows]) => [m, rows.filter(inRange)]));
     state.rangeStart = start;
+    state.rangeEnd = end;
+    state.rangeData = data;
     state.history = { metrics: metricsHistory, sleepPeriods: sleepHistory };
     state.sleepPeriods = sleepHistory.filter(inRange);
 
@@ -116,6 +143,13 @@ document.getElementById("sync-btn").addEventListener("click", async () => {
     btn.disabled = false;
     btn.textContent = "Sync";
   }
+});
+
+// --- CSV export ---
+document.getElementById("csv-btn").addEventListener("click", () => {
+  if (!state.rangeData) return;
+  const rows = dailyCsvRows(state.rangeData, state.sleepPeriods);
+  downloadCsv(`oura-${state.rangeStart}_${state.rangeEnd}.csv`, rows);
 });
 
 // --- Range buttons ---
@@ -536,3 +570,5 @@ document.getElementById("logout-btn").addEventListener("click", async () => {
 
 // --- Init ---
 loadData();
+// A tab left open would otherwise keep showing the age it had at load time.
+setInterval(loadSyncStatus, 10 * 60 * 1000);

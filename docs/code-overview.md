@@ -40,7 +40,7 @@ Python/Flask 版 `oura-dashboard` からの移植で、**JSON API はバイト�
 | `src/Handler/Advice.hs` | 111 | advice の POST / ポーリング / 履歴 |
 | `src/DailySync.hs` | 85 | cron 用 CLI。JST タイムスタンプ、7 日分 backfill、エラー時 exit 1 |
 | `src/Application.hs` | 230 | `.env` ロード → 設定 → コネクションプール作成 → migrate → Warp 起動 |
-| `static/*.js` | 838 | フロントエンド（main / charts / helpers / api） |
+| `static/*.js` | 838 | フロントエンド（main / charts / helpers / api / export） |
 
 ### データモデル（`config/models.persistentmodels`）
 
@@ -222,7 +222,7 @@ flowchart LR
 
 ### フロントエンド
 
-`static/main.js`（画面制御）・`charts.js`（Chart.js 描画）・`helpers.js`（共通関数）・`api.js`（`apiFetch` ラッパー、401 時にログインモーダルを出す）。Python 版と JSON 契約が同じなので変更なしで流用されている。
+`static/main.js`（画面制御）・`charts.js`（Chart.js 描画）・`helpers.js`（共通関数）・`api.js`（`apiFetch` ラッパー、401 時にログインモーダルを出す）・`export.js`（表示中期間の CSV 生成）。Python 版と JSON 契約が同じなので変更なしで流用されている。
 
 ---
 

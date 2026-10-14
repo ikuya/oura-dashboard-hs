@@ -169,13 +169,49 @@ footer table { border-collapse: collapse; }
 footer table td { padding: 2px 12px 2px 0; }
 
 /* Status bar */
+.status-row { display: flex; align-items: flex-start; gap: 12px; }
 #status-bar {
+  flex: 1;
   font-size: 12px;
   color: var(--muted);
   padding: 6px 0;
   min-height: 24px;
 }
 #status-bar.error { color: var(--red); }
+
+/* How long ago the data was synced; a warning once cron has missed a run */
+.sync-freshness {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 6px 0;
+  white-space: nowrap;
+}
+.sync-freshness.stale,
+.sync-freshness.very-stale {
+  padding: 4px 10px;
+  margin: 2px 0 8px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  font-weight: 600;
+  white-space: normal;
+}
+.sync-freshness.stale { color: var(--yellow); background: #eab3081a; }
+.sync-freshness.very-stale { color: var(--red); background: #ef44441a; }
+
+/* CSV export button */
+#csv-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+#csv-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+#csv-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Advice button */
 #advice-btn {

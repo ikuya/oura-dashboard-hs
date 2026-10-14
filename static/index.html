@@ -23,10 +23,14 @@
     </div>
     <button id="sync-btn">Sync</button>
     <button id="advice-btn">Advice</button>
+    <button id="csv-btn" title="表示中の期間を日別 CSV でダウンロード">CSV</button>
     <button id="logout-btn">Logout</button>
   </header>
 
-  <div id="status-bar"></div>
+  <div class="status-row">
+    <div id="status-bar"></div>
+    <div id="sync-freshness" class="sync-freshness"></div>
+  </div>
 
   <!-- Today's score cards -->
   <div class="cards">

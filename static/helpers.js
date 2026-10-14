@@ -60,3 +60,32 @@ export function mainPeriod(periods) {
          (a, b) => ((b.time_in_bed ?? 0) > (a.time_in_bed ?? 0) ? b : a),
          candidates[0]);
 }
+
+// cron syncs at 11:00, 17:00 and 23:00, so the longest normal gap is the 12
+// hours overnight. Past STALE_HOURS at least one run has been missed; past
+// VERY_STALE_HOURS the data is a day or more behind.
+export const STALE_HOURS = 13;
+export const VERY_STALE_HOURS = 25;
+
+// Judged on the metric that synced longest ago: a sync that keeps failing for
+// one endpoint leaves the others fresh, and that is exactly the case to flag.
+// Metrics never synced are left out unless nothing has synced at all.
+export function syncFreshness(status, now = new Date()) {
+  const synced = Object.entries(status)
+    .filter(([, v]) => v.last_synced_at)
+    .map(([metric, v]) => ({ metric, at: new Date(v.last_synced_at) }));
+  if (synced.length === 0) return { level: "very-stale", oldest: null, lagging: [] };
+
+  const hoursAgo = (at) => (now - at) / 3_600_000;
+  const oldest = synced.reduce((a, b) => (b.at < a.at ? b : a));
+  const hours = hoursAgo(oldest.at);
+  const level = hours > VERY_STALE_HOURS ? "very-stale" : hours > STALE_HOURS ? "stale" : "fresh";
+  const lagging = synced.filter((s) => hoursAgo(s.at) > STALE_HOURS).map((s) => s.metric);
+  return { level, oldest: oldest.at, hours, lagging };
+}
+
+export function formatAge(hours) {
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m`;
+  if (hours < 48) return `${Math.round(hours)}h`;
+  return `${Math.round(hours / 24)}d`;
+}
