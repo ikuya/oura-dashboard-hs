@@ -64,6 +64,10 @@ CLAUDE.md に「ハードリロード必須」と書いている問題を実装�
 `chart.js@4` や `luxon@3` はメジャーバージョンしか固定していない。
 README の「完全にローカル」に合わせて `static/vendor/` に置き自前配信する。
 
+- 対応済み（2026-10-14）：chart.js 4.5.1 / luxon 3.7.2 / chartjs-adapter-luxon 1.3.1 /
+  marked 12.0.2 をバージョン名入りのファイル名で `static/vendor/` に同梱（npm tarball と
+  同一内容、ライセンスは `licenses/`、更新手順は `static/vendor/README.md`）
+
 ### 7. Advice の定期自動生成と前回比較
 
 日次同期後に週 1 回 Advice を生成・保存し、履歴画面で前回からの変化を見られるようにする。
