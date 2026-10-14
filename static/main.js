@@ -357,6 +357,8 @@ document.getElementById("hr-next-day").addEventListener("click", () => {
   function close() {
     if (!expanded) return;
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    // Leaving full screen should release the landscape lock; make sure of it.
+    try { screen.orientation?.unlock?.(); } catch {}
     expanded.classList.remove("expanded");
     document.body.classList.remove("chart-expanded");
     setButton(expanded, false);

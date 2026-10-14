@@ -125,14 +125,18 @@ header h1 { font-size: 20px; font-weight: 700; flex: 1; }
 .score-neutral { color: var(--text); }
 
 /* Chart grid */
+/* minmax(0, ...) rather than 1fr: a 1fr column never narrows below its
+   content, and a canvas keeps the inline width Chart.js last gave it. After a
+   full-screen chart closes, that width would hold the column (and on a phone
+   the whole page) wide, so the box never shrank and the chart never resized. */
 .chart-row {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   margin-bottom: 16px;
 }
-.chart-row.two-col { grid-template-columns: 1fr 1fr; }
-@media (max-width: 700px) { .chart-row.two-col { grid-template-columns: 1fr; } }
+.chart-row.two-col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 700px) { .chart-row.two-col { grid-template-columns: minmax(0, 1fr); } }
 
 .chart-card {
   background: var(--surface);
