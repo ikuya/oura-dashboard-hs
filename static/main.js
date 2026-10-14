@@ -12,7 +12,7 @@ let renderSleepStages = () => {};
 
 // --- State ---
 const state = {
-  days: 14,
+  days: 30,
   charts: {},
   hrMode: "7d",
   rangeStart: null,   // first day of the selected range
