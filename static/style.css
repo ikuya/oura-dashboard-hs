@@ -141,7 +141,34 @@ header h1 { font-size: 20px; font-weight: 700; flex: 1; }
   padding: 16px;
 }
 .chart-card h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
-.chart-card canvas { max-height: 220px; }
+/* Charts fill their box (maintainAspectRatio: false), so the height is set
+   here. Phones get taller boxes: they are short on width, not on scroll. */
+.chart-box { position: relative; height: 220px; }
+.chart-box.tall { height: 280px; }
+.chart-box.short { height: 120px; }
+@media (max-width: 700px) {
+  .chart-box { height: 280px; }
+  .chart-box.tall { height: 340px; }
+  .chart-box.short { height: 140px; }
+}
+
+/* HTML legend above the chart box (charts.js withHtmlLegend) */
+.chart-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 6px; margin-bottom: 8px; }
+.chart-legend:empty { display: none; }
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.chart-legend-item[aria-pressed="false"] { opacity: 0.4; text-decoration: line-through; }
+.chart-legend-swatch { width: 12px; height: 12px; border-radius: 3px; border: 2px solid; flex: none; }
 
 /* Misc metrics table */
 .misc-grid {
