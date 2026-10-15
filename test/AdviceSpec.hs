@@ -42,6 +42,7 @@ periodOfType sleepType ouraId day deep light rem' awake = A.object
     , "awake_time" .= awake
     , "total_sleep_duration" .= (deep + light + rem')
     , "time_in_bed" .= (deep + light + rem' + awake)
+    , "sleep_score_delta" .= (1 :: Int)
     ]
 
 spec :: Spec
@@ -90,7 +91,8 @@ spec = do
                 [ "id" .= (ouraId :: Text), "day" .= ("2024-01-10" :: Text)
                 , "type" .= (sleepType :: Text)
                 , "bedtime_start" .= (start :: Text), "bedtime_end" .= (end :: Text)
-                , "time_in_bed" .= (tib :: Int), "latency" .= (latency :: Int) ]
+                , "time_in_bed" .= (tib :: Int), "latency" .= (latency :: Int)
+                , "sleep_score_delta" .= (1 :: Int) ]
             row periods = do
                 payload <- runMem $ do
                     _ <- upsertSleepPeriods periods

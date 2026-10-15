@@ -211,6 +211,18 @@ spec = do
                 getSleepPeriods (DateRange "2024-01-01" "2024-01-01")
             map (field "id") rows `shouldBe` [Just (A.String "a"), Just (A.String "d")]
 
+        it "hides the short periods the Oura app does not count" $ do
+            let unscored p = p `withField` ("sleep_score_delta", A.Null)
+            rows <- runMem $ do
+                _ <- upsertSleepPeriods
+                    [ unscored (sleepPeriod "a" "2024-01-01" "2024-01-01T01:00:00+09:00" "long_sleep")
+                    , unscored (sleepPeriod "b" "2024-01-01" "2024-01-01T14:00:00+09:00" "sleep")
+                    , unscored (sleepPeriod "c" "2024-01-01" "2024-01-01T19:00:00+09:00" "late_nap")
+                    , (sleepPeriod "d" "2024-01-01" "2024-01-01T16:00:00+09:00" "sleep")
+                        `withField` ("sleep_score_delta", A.Number 0) ]
+                getSleepPeriods (DateRange "2024-01-01" "2024-01-01")
+            map (field "id") rows `shouldBe` [Just (A.String "a"), Just (A.String "d")]
+
         it "orders by bedtime_start, not by insertion" $ do
             rows <- runMem $ do
                 _ <- upsertSleepPeriods
@@ -292,6 +304,7 @@ sleepPeriod ouraId day bedtimeStart sleepType = A.object
     , "awake_time" .= (300 :: Int)
     , "total_sleep_duration" .= (900 :: Int)
     , "time_in_bed" .= (1200 :: Int)
+    , "sleep_score_delta" .= (1 :: Int)
     ]
 
 -- | Add or override one field of a record.

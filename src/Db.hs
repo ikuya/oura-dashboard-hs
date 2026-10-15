@@ -161,6 +161,15 @@ sleepPeriodFields =
 hiddenSleepTypes :: [Text]
 hiddenSleepTypes = ["deleted", "rest"]
 
+-- | SQL condition keeping the periods the Oura app counts as sleep. The API
+-- also returns short detections (mostly a few minutes asleep) that the app
+-- shows neither as a nap nor in the day's totals; those are the ones whose
+-- @sleep_score_delta@ is null. A long sleep always counts: older records and
+-- a night not yet scored carry a null delta too.
+countedSleepCondition :: Text
+countedSleepCondition =
+    "(type = 'long_sleep' OR json_extract(data_json, '$.sleep_score_delta') IS NOT NULL)"
+
 -- | New in the Haskell port. Skips records without an id or day. Keyed on
 -- the Oura document id rather than the day, because one day holds several
 -- periods (a long sleep plus naps). Returns the number of records written.
@@ -194,7 +203,7 @@ getSleepPeriods (DateRange start end) = do
     rows <- rawSql
         ("SELECT data_json FROM sleep_periods WHERE day >= ? AND day <= ? AND type NOT IN ("
             <> intercalate "," (map (const "?") hiddenSleepTypes)
-            <> ") ORDER BY bedtime_start")
+            <> ") AND " <> countedSleepCondition <> " ORDER BY bedtime_start")
         ([toPersistValue start, toPersistValue end]
             ++ map toPersistValue hiddenSleepTypes)
     return [ projectSleepPeriod (parseDataJson dj) | Single dj <- rows ]
