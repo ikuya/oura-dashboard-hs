@@ -1,4 +1,5 @@
 import { mainPeriod } from "./helpers.js";
+import { READINESS_CONTRIBUTORS, SLEEP_CONTRIBUTORS } from "./charts.js";
 
 // One row per day of the selected range, built from what the dashboard already
 // loaded, so the file holds exactly the numbers the charts are drawing.
@@ -24,6 +25,8 @@ const DAILY_COLUMNS = [
   ["temperature_deviation_c", "temperature", (r) => r.temperature_deviation ?? r.score],
   ["resilience_level", "resilience", (r) => r.level],
   ["vascular_age", "cardiovascular_age", (r) => r.vascular_age ?? r.score],
+  ...[["readiness", READINESS_CONTRIBUTORS], ["sleep", SLEEP_CONTRIBUTORS]].flatMap(([metric, contributors]) =>
+    contributors.map(({ key }) => [`${metric}_${key}`, metric, (r) => r.contributors?.[key]])),
 ];
 
 const SLEEP_COLUMNS = [

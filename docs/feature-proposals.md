@@ -100,6 +100,11 @@ README の「完全にローカル」に合わせて `static/vendor/` に置き�
 期間中の内訳をヒートマップ（行 = 項目、列 = 日）で見せると、スコアが下がった理由が
 一目で分かる。Sleep の contributors（`deep_sleep` / `latency` / `timing` など）も同様。
 
+- 対応済み（2026-10-25）：Readiness / Sleep カードに最新日の低い上位 2 項目を表示し、
+  両スコアの内訳を期間全体のヒートマップ（100 からの不足分を濃淡で表示、セルを
+  タップすると値が出る）で表示。CSV にも内訳の列を追加。Readiness には
+  `sleep_regularity` も含めた
+
 ### 10. ストレスと回復の対比
 
 Stress チャートは `stress_high` だけで、`recovery_high` と `day_summary`

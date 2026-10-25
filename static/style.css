@@ -119,6 +119,7 @@ header h1 { font-size: 20px; font-weight: 700; flex: 1; }
 .card-delta { font-size: 12px; color: var(--muted); margin-top: 2px; min-height: 1em; }
 .card-delta.delta-good { color: var(--good); }
 .card-delta.delta-bad { color: var(--bad); }
+.card-drag { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .score-green { color: var(--green); }
 .score-yellow { color: var(--yellow); }
 .score-red { color: var(--red); }
@@ -209,6 +210,26 @@ body.chart-expanded { overflow: hidden; }
 }
 .chart-legend-item[aria-pressed="false"] { opacity: 0.4; text-decoration: line-through; }
 .chart-legend-swatch { width: 12px; height: 12px; border-radius: 3px; border: 2px solid; flex: none; }
+
+/* Contributor heatmaps (charts.js renderContributorHeatmap) */
+.heatmap { --heatmap-label-width: 116px; display: flex; flex-direction: column; }
+@media (max-width: 700px) { .heatmap { --heatmap-label-width: 96px; } }
+.heatmap-grid { display: grid; flex: 1; min-height: 0; }
+.heatmap-label {
+  font-size: 11px;
+  color: var(--muted);
+  align-self: center;
+  padding-right: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.heatmap-cell { border-radius: 2px; min-width: 0; cursor: pointer; }
+.heatmap-cell.selected { box-shadow: inset 0 0 0 2px var(--text); }
+.heatmap-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); padding-top: 4px; }
+.heatmap-detail { font-size: 12px; color: var(--muted); margin-top: 6px; min-height: 1.5em; }
+.heatmap-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+.heatmap-swatch { width: 14px; height: 10px; border-radius: 2px; }
 
 /* Misc metrics table */
 .misc-grid {

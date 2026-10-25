@@ -39,12 +39,14 @@
       <div class="card-value score-neutral" id="card-readiness">—</div>
       <div class="card-sub" id="card-readiness-date"></div>
       <div class="card-delta" id="card-readiness-delta"></div>
+      <div class="card-drag" id="card-readiness-drag"></div>
     </div>
     <div class="card">
       <div class="card-label">Sleep</div>
       <div class="card-value score-neutral" id="card-sleep">—</div>
       <div class="card-sub" id="card-sleep-date"></div>
       <div class="card-delta" id="card-sleep-delta"></div>
+      <div class="card-drag" id="card-sleep-drag"></div>
     </div>
     <div class="card">
       <div class="card-label">Activity</div>
@@ -83,6 +85,22 @@
     <div class="chart-card">
       <h2>Readiness / Sleep / Activity Scores</h2>
       <div class="chart-box"><canvas id="chart-scores"></canvas></div>
+    </div>
+  </div>
+
+  <!-- What made up each day's Readiness and Sleep score -->
+  <div class="chart-row two-col">
+    <div class="chart-card">
+      <h2>Readiness Contributors</h2>
+      <div class="heatmap-legend"></div>
+      <div class="chart-box heatmap" id="heatmap-readiness"></div>
+      <div class="heatmap-detail" id="heatmap-readiness-detail"></div>
+    </div>
+    <div class="chart-card">
+      <h2>Sleep Contributors</h2>
+      <div class="heatmap-legend"></div>
+      <div class="chart-box heatmap" id="heatmap-sleep"></div>
+      <div class="heatmap-detail" id="heatmap-sleep-detail"></div>
     </div>
   </div>
 
