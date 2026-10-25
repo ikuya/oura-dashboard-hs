@@ -408,6 +408,21 @@ footer table td { padding: 2px 12px 2px 0; }
   flex-shrink: 0;
 }
 
+.advice-comparison {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 20px 0;
+  flex-shrink: 0;
+}
+.advice-comparison:empty { display: none; }
+.advice-comparison .comparison-label { flex-basis: 100%; font-size: 11px; }
+.advice-comparison .comparison-value { color: var(--text); font-weight: 600; }
+.advice-comparison .delta-good { color: var(--good); }
+.advice-comparison .delta-bad { color: var(--bad); }
+
 .advice-content {
   padding: 16px 20px 20px;
   overflow-y: auto;

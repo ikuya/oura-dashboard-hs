@@ -388,6 +388,41 @@ document.getElementById("hr-next-day").addEventListener("click", () => {
   });
 })();
 
+// --- Advice comparison ---
+const COMPARISON_LABELS = { readiness: "Readiness", sleep: "Sleep", activity: "Activity" };
+
+// Each headline score's mean over the advice's period, with how far it moved
+// from the previous advice's period: "Readiness 78 +2.4 ↑".
+function renderAdviceComparison(el, comparison) {
+  el.replaceChildren();
+  const scores = (comparison?.scores ?? []).filter((s) => s.average != null);
+  if (scores.length === 0) return;
+  const prev = comparison.previous;
+  const label = document.createElement("span");
+  label.className = "comparison-label";
+  label.textContent = prev
+    ? `期間平均スコア（前回 ${prev.saved_at.slice(0, 10)} 保存分との差）`
+    : "期間平均スコア（前回のアドバイスなし）";
+  el.append(label);
+  for (const s of scores) {
+    const item = document.createElement("span");
+    const value = document.createElement("span");
+    value.className = "comparison-value";
+    value.textContent = Math.round(s.average);
+    item.append(`${COMPARISON_LABELS[s.metric] ?? s.metric} `, value);
+    if (s.previous != null) {
+      const d = s.average - s.previous;
+      const shown = Math.abs(d).toFixed(1);
+      const zero = Number.parseFloat(shown) === 0;
+      const delta = document.createElement("span");
+      delta.textContent = zero ? " ±0" : ` ${d > 0 ? "+" : "−"}${shown} ${d > 0 ? "↑" : "↓"}`;
+      if (!zero) delta.className = d > 0 ? "delta-good" : "delta-bad";
+      item.append(delta);
+    }
+    el.append(item);
+  }
+}
+
 // --- Advice button ---
 (function () {
   const adviceBtn = document.getElementById("advice-btn");
@@ -396,6 +431,7 @@ document.getElementById("hr-next-day").addEventListener("click", () => {
   const copyBtn = document.getElementById("advice-copy-btn");
   const contentEl = document.getElementById("advice-content");
   const periodEl = document.getElementById("advice-period");
+  const comparisonEl = document.getElementById("advice-comparison");
   const confirmOverlay = document.getElementById("confirm-overlay");
   const confirmOkBtn = document.getElementById("confirm-ok-btn");
   const confirmCancelBtn = document.getElementById("confirm-cancel-btn");
@@ -471,6 +507,7 @@ document.getElementById("hr-next-day").addEventListener("click", () => {
     adviceBtn.disabled = true;
     adviceBtn.textContent = "分析中...";
     periodEl.textContent = "";
+    comparisonEl.replaceChildren();
     copyBtn.disabled = true;
     copyBtn.textContent = "コピー";
     sharedAdviceRaw = "";
@@ -499,6 +536,7 @@ document.getElementById("hr-next-day").addEventListener("click", () => {
       if (data.period) {
         periodEl.textContent = `分析期間: ${data.period.start} 〜 ${data.period.end}`;
       }
+      renderAdviceComparison(comparisonEl, data.comparison);
       sharedAdviceRaw = data.advice || "";
       contentEl.innerHTML = marked.parse(sharedAdviceRaw);
       copyBtn.disabled = false;
@@ -523,6 +561,7 @@ document.getElementById("hr-next-day").addEventListener("click", () => {
   const overlay    = document.getElementById("advice-overlay");
   const contentEl  = document.getElementById("advice-content");
   const periodEl   = document.getElementById("advice-period");
+  const comparisonEl = document.getElementById("advice-comparison");
   const copyBtn    = document.getElementById("advice-copy-btn");
 
   function openModal() { overlay.classList.remove("hidden"); }
@@ -580,6 +619,7 @@ document.getElementById("hr-next-day").addEventListener("click", () => {
     copyBtn.disabled = true;
     copyBtn.textContent = "コピー";
     periodEl.textContent = "";
+    comparisonEl.replaceChildren();
     contentEl.innerHTML = `
       <div class="advice-loading">
         <div class="advice-spinner"></div>
@@ -597,6 +637,7 @@ document.getElementById("hr-next-day").addEventListener("click", () => {
       if (data.period) {
         periodEl.textContent = `分析期間: ${data.period.start} 〜 ${data.period.end}　（保存日: ${isoDate}）`;
       }
+      renderAdviceComparison(comparisonEl, data.comparison);
       sharedAdviceRaw = data.advice || "";
       contentEl.innerHTML = marked.parse(sharedAdviceRaw);
       copyBtn.disabled = false;

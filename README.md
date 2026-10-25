@@ -26,7 +26,9 @@ has been added since — the sleep stage charts — is new on both sides.
   the 28 days before it, and the daily charts carry a dashed 7-day moving average
 - Incremental sync (only fetches dates not yet stored locally)
 - **Advice** — analyzes the last 14 days with the `claude` CLI and shows a
-  Japanese health summary; saved to the DB and browsable. Can also run on a
+  Japanese health summary; saved to the DB and browsable. Each run is given the
+  previous advice and reports what changed since, and the report is headed by
+  its period's average scores against the previous one's. Can also run on a
   schedule from cron (see Scheduled Advice)
 - **Password protection** — session-based, password stored as a bcrypt hash in
   `APP_PASSWORD`

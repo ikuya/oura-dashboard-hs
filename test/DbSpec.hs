@@ -155,9 +155,8 @@ spec = do
                         Just (A.String day) -> getAdviceForDate (DayText day)
                         _ -> return Nothing
                     _ -> return Nothing
-            (field "content" =<< entry) `shouldBe` Just (A.String "健康状態は良好です。")
-            (field "period_start" =<< entry) `shouldBe` Just (A.String "2024-01-01")
-            (field "period_end" =<< entry) `shouldBe` Just (A.String "2024-01-14")
+            savedAdviceContent <$> entry `shouldBe` Just "健康状態は良好です。"
+            savedAdvicePeriod <$> entry `shouldBe` Just (DateRange "2024-01-01" "2024-01-14")
 
         it "returns Nothing when missing" $ do
             entry <- runMem $ getAdviceForDate "2024-01-01"
@@ -172,6 +171,29 @@ spec = do
             length dates `shouldBe` 2
             (field "day" =<< headMay dates) `shouldBe` Just (A.String "2024-01-14")
             (field "day" =<< headMay (drop 1 dates)) `shouldBe` Just (A.String "2024-01-20")
+
+        it "finds the latest advice saved before a time" $ do
+            (before, between, first) <- runMem $ do
+                insertAdviceRaw "2024-01-14T10:00:00+00:00" "2024-01-01" "2024-01-14" "advice A"
+                insertAdviceRaw "2024-01-20T10:00:00+00:00" "2024-01-07" "2024-01-20" "advice B"
+                (,,) <$> getAdviceBefore "2024-01-21T00:00:00+00:00"
+                     <*> getAdviceBefore "2024-01-20T10:00:00+00:00"
+                     <*> getAdviceBefore "2024-01-14T10:00:00+00:00"
+            savedAdviceContent <$> before `shouldBe` Just "advice B"
+            savedAdvicePeriod <$> before `shouldBe` Just (DateRange "2024-01-07" "2024-01-20")
+            savedAdviceContent <$> between `shouldBe` Just "advice A"
+            first `shouldBe` Nothing
+
+    describe "get_score_averages" $ do
+        it "averages each metric's scored days in the range" $ do
+            avgs <- runMem $ do
+                upsertDailyMetric Sleep "2024-01-01" (Just 70) (A.object [])
+                upsertDailyMetric Sleep "2024-01-02" (Just 80) (A.object [])
+                upsertDailyMetric Sleep "2024-01-03" Nothing (A.object [])
+                upsertDailyMetric Sleep "2024-01-04" (Just 10) (A.object [])
+                upsertDailyMetric Activity "2024-01-02" Nothing (A.object [])
+                getScoreAverages [Sleep, Readiness, Activity] (DateRange "2024-01-01" "2024-01-03")
+            avgs `shouldBe` M.fromList [(Sleep, 75)]
 
     describe "upsert_sleep_periods / get_sleep_periods" $ do
         it "inserts records" $ do

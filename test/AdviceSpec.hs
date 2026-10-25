@@ -13,8 +13,10 @@ import Data.Aeson ((.=))
 import qualified Data.Aeson.Key as K
 import qualified Data.Aeson.KeyMap as KM
 
-import Advice (buildHealthPayload)
-import Db (upsertSleepPeriods)
+import Advice (adviceComparison, buildAdvicePrompt, buildHealthPayload)
+import DateText (DateRange (..))
+import Db (SavedAdvice (..), upsertDailyMetric, upsertSleepPeriods)
+import Metric (DailyMetric (..))
 import Model (migrateAll)
 
 -- | A fresh in-memory database per call. Signature left to inference to avoid
@@ -45,13 +47,56 @@ periodOfType sleepType ouraId day deep light rem' awake = A.object
     , "sleep_score_delta" .= (1 :: Int)
     ]
 
+previousAdvice :: SavedAdvice
+previousAdvice = SavedAdvice "2024-01-08T02:30:00+00:00"
+    (DateRange "2023-12-26" "2024-01-08") "### 💡 アドバイス\n- 早く寝る"
+
 spec :: Spec
 spec = do
+    describe "build_advice_prompt" $ do
+        it "asks for no follow-up without a previous advice" $ do
+            let prompt = buildAdvicePrompt Nothing (A.object [])
+            prompt `shouldNotSatisfy` isInfixOf "前回"
+            prompt `shouldNotSatisfy` isInfixOf "<previous_advice"
+
+        it "appends the previous advice and asks what changed since" $ do
+            let prompt = buildAdvicePrompt (Just previousAdvice) (A.object [])
+            prompt `shouldSatisfy` isInfixOf "### 🔁 前回からの変化"
+            prompt `shouldSatisfy` isInfixOf
+                "<previous_advice saved_at=\"2024-01-08T02:30:00+00:00\" period=\"2023-12-26..2024-01-08\">\n### 💡 アドバイス\n- 早く寝る\n</previous_advice>"
+
+    describe "advice_comparison" $ do
+        let scores c = case field "scores" c of
+                Just (A.Array v) -> toList v
+                _                -> []
+            score m c = find ((== Just (A.String m)) . field "metric") (scores c)
+
+        it "sets each score's period mean beside the previous period's" $ do
+            c <- runMem $ do
+                upsertDailyMetric Readiness "2024-01-05" (Just 60) (A.object [])
+                upsertDailyMetric Readiness "2024-01-10" (Just 80) (A.object [])
+                upsertDailyMetric Readiness "2024-01-12" (Just 90) (A.object [])
+                adviceComparison (DateRange "2024-01-09" "2024-01-22") (Just previousAdvice)
+            map (field "metric") (scores c) `shouldBe`
+                map (Just . A.String) ["readiness", "sleep", "activity"]
+            (field "average" =<< score "readiness" c) `shouldBe` Just (A.Number 85)
+            (field "previous" =<< score "readiness" c) `shouldBe` Just (A.Number 60)
+            (field "average" =<< score "sleep" c) `shouldBe` Just A.Null
+            (field "saved_at" =<< field "previous" c)
+                `shouldBe` Just (A.String "2024-01-08T02:30:00+00:00")
+
+        it "has no previous means without a previous advice" $ do
+            c <- runMem $ do
+                upsertDailyMetric Readiness "2024-01-10" (Just 80) (A.object [])
+                adviceComparison (DateRange "2024-01-09" "2024-01-22") Nothing
+            field "previous" c `shouldBe` Just A.Null
+            (field "previous" =<< score "readiness" c) `shouldBe` Just A.Null
+
     describe "build_health_payload" $ do
         it "includes sleep_periods" $ do
             payload <- runMem $ do
                 _ <- upsertSleepPeriods [period "a" "2024-01-10" 3000 14000 7000 3600]
-                buildHealthPayload "2024-01-10" 14
+                buildHealthPayload "2024-01-10"
             let rows = field "sleep_periods" payload
             case rows of
                 Just (A.Array v) -> do
@@ -67,7 +112,7 @@ spec = do
                 _ <- upsertSleepPeriods
                     [ period "a" "2024-01-10" 3000 14000 7000 3600
                     , period "b" "2024-01-10"  100   800   200  300 ]
-                buildHealthPayload "2024-01-10" 14
+                buildHealthPayload "2024-01-10"
             case field "sleep_periods" payload of
                 Just (A.Array v) -> do
                     length v `shouldBe` 1
@@ -76,14 +121,14 @@ spec = do
                 _ -> expectationFailure "sleep_periods is not an array"
 
         it "is an empty array before the first sync" $ do
-            payload <- runMem $ buildHealthPayload "2024-01-10" 14
+            payload <- runMem $ buildHealthPayload "2024-01-10"
             field "sleep_periods" payload `shouldBe` Just (A.Array mempty)
 
         it "keeps rest periods out of the prompt" $ do
             payload <- runMem $ do
                 _ <- upsertSleepPeriods
                     [ periodOfType "rest" "a" "2024-01-10" 3000 14000 7000 3600 ]
-                buildHealthPayload "2024-01-10" 14
+                buildHealthPayload "2024-01-10"
             field "sleep_periods" payload `shouldBe` Just (A.Array mempty)
 
     describe "build_health_payload sleep times" $ do
@@ -96,7 +141,7 @@ spec = do
             row periods = do
                 payload <- runMem $ do
                     _ <- upsertSleepPeriods periods
-                    buildHealthPayload "2024-01-10" 14
+                    buildHealthPayload "2024-01-10"
                 case field "sleep_periods" payload of
                     Just (A.Array v) | [r] <- toList v -> return r
                     _ -> expectationFailure "expected one sleep_periods row" >> return A.Null

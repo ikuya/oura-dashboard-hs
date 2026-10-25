@@ -22,18 +22,14 @@ import GHC.IO.Encoding            (setFileSystemEncoding, setForeignEncoding,
 import System.Exit                (exitWith, ExitCode (..))
 import System.Log.FastLogger      (flushLogStr)
 
-import Advice      (buildAdvicePrompt, buildHealthPayload, generateAdvice,
-                    hasHealthData)
+import Advice      (advicePeriod, buildAdvicePrompt, buildHealthPayload,
+                    generateAdvice, hasHealthData)
 import Application (getAppSettings)
-import DateText    (DayText (..), addDaysT, todayIn)
-import Db          (saveAdvice)
+import DateText    (DateRange (..), DayText (..), todayIn)
+import Db          (getAdviceBefore, nowIso, saveAdvice)
 import Logging     (newAppLoggerSet, runLog)
 import Model       (migrateAll)
 import Settings    (AppSettings, appDatabaseConf, appLogFile, appShouldLogAll)
-
--- | The window the web's Advice button analyses.
-adviceDays :: Int
-adviceDays = 14
 
 scheduledAdviceMain :: IO ()
 scheduledAdviceMain = do
@@ -52,20 +48,22 @@ scheduledAdvice :: AppSettings -> LoggingT IO ExitCode
 scheduledAdvice settings = do
     -- JST like DailySync, so the window ends on the day the sync just filled.
     today <- todayIn (hoursToTimeZone 9)
-    let start = addDaysT (negate (fromIntegral adviceDays - 1)) today
+    let DateRange start _ = advicePeriod today
     $logInfo $ "starting scheduled advice for " <> unDayText start <> ".." <> unDayText today
     pool <- createSqlitePool
         (sqlDatabase (appDatabaseConf settings))
         (sqlPoolSize (appDatabaseConf settings))
     _ <- runSqlPool (runMigrationSilent migrateAll) pool
-    healthData <- runSqlPool (buildHealthPayload today adviceDays) pool
+    now <- nowIso
+    (healthData, previous) <- runSqlPool
+        ((,) <$> buildHealthPayload today <*> getAdviceBefore now) pool
     if not (hasHealthData healthData)
         then do
             $logError "no metric data in the advice window; run a sync first"
             return (ExitFailure 1)
         else do
             started <- liftIO getCurrentTime
-            result <- liftIO $ generateAdvice (buildAdvicePrompt healthData)
+            result <- liftIO $ generateAdvice (buildAdvicePrompt previous healthData)
             case result of
                 Left msg -> do
                     $logError $ "scheduled advice failed: " <> msg

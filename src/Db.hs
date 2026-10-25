@@ -240,23 +240,51 @@ getAdviceDates = do
                 ]
            | (Single day, Single savedAt, Single ps, Single pe) <- rows ]
 
--- get_advice_for_date
+-- | A saved advice entry, for the prompt and the comparison of a later one.
+data SavedAdvice = SavedAdvice
+    { savedAdviceAt      :: Text
+    , savedAdvicePeriod  :: DateRange
+    , savedAdviceContent :: Text
+    } deriving (Eq, Show)
+
+-- | The latest advice saved strictly before the given @saved_at@: what a new
+-- advice (bounded by 'nowIso') or a saved one follows on from.
+getAdviceBefore
+    :: (MonadIO m) => Text -> ReaderT SqlBackend m (Maybe SavedAdvice)
+getAdviceBefore savedAt = do
+    rows <- rawSql
+        "SELECT saved_at, period_start, period_end, content FROM advice_history WHERE saved_at < ? ORDER BY saved_at DESC LIMIT 1"
+        [toPersistValue savedAt]
+    return $ savedAdviceRow <$> headMay rows
+
+savedAdviceRow
+    :: (Single Text, Single DayText, Single DayText, Single Text) -> SavedAdvice
+savedAdviceRow (Single at, Single ps, Single pe, Single content) =
+    SavedAdvice at (DateRange ps pe) content
+
+-- get_advice_for_date: the last advice saved on a (UTC) day.
 getAdviceForDate
-    :: (MonadIO m) => DayText -> ReaderT SqlBackend m (Maybe A.Value)
+    :: (MonadIO m) => DayText -> ReaderT SqlBackend m (Maybe SavedAdvice)
 getAdviceForDate day = do
     rows <- rawSql
         "SELECT saved_at, period_start, period_end, content FROM advice_history WHERE substr(saved_at, 1, 10) = ? ORDER BY saved_at DESC LIMIT 1"
         [toPersistValue day]
-    return $ entryJson <$> headMay rows
-  where
-    entryJson
-        :: (Single Text, Single Text, Single Text, Single Text) -> A.Value
-    entryJson (Single savedAt, Single ps, Single pe, Single content) = A.object
-        [ "saved_at"     A..= savedAt
-        , "period_start" A..= ps
-        , "period_end"   A..= pe
-        , "content"      A..= content
-        ]
+    return $ savedAdviceRow <$> headMay rows
+
+-- | The mean score of each metric over a range, skipping days without one.
+-- A metric with no scored day in the range is absent from the map.
+getScoreAverages
+    :: (MonadIO m)
+    => [DailyMetric] -> DateRange -> ReaderT SqlBackend m (Map DailyMetric Double)
+getScoreAverages metrics (DateRange start end) = do
+    rows <- rawSql
+        ("SELECT metric, AVG(score) FROM daily_metrics WHERE metric IN ("
+            <> intercalate "," (map (const "?") metrics)
+            <> ") AND day >= ? AND day <= ? AND score IS NOT NULL GROUP BY metric")
+        (map (toPersistValue . dailyMetricName) metrics
+            ++ [toPersistValue start, toPersistValue end])
+    return $ M.fromList
+        [ (m, avg) | (Single name, Single avg) <- rows, Just m <- [parseDailyMetric name] ]
 
 -- get_sync_status
 getSyncStatus :: (MonadIO m) => ReaderT SqlBackend m A.Value

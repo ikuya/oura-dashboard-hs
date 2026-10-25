@@ -15,8 +15,11 @@ module Advice
     , AdviceJobs
     , adviceSystemPrompt
     , extractKeyFields
+    , adviceDays
+    , advicePeriod
     , buildHealthPayload
     , buildAdvicePrompt
+    , adviceComparison
     , hasHealthData
     , generateAdvice
     , newAdviceJobs
@@ -61,25 +64,33 @@ statusText Running   = "running"
 statusText Completed = "completed"
 statusText Failed    = "failed"
 
--- | A single advice job. @period@ is the {start,end,days} object.
+-- | A single advice job. @period@ is the {start,end,days} object and
+-- @comparison@ the 'adviceComparison' shown above the finished report.
 data AdviceJob = AdviceJob
-    { jobId     :: Text
-    , jobStatus :: JobStatus
-    , jobPeriod :: A.Value
-    , jobAdvice :: Text
-    , jobError  :: Maybe Text
+    { jobId         :: Text
+    , jobStatus     :: JobStatus
+    , jobPeriod     :: A.Value
+    , jobComparison :: A.Value
+    , jobAdvice     :: Text
+    , jobError      :: Maybe Text
     }
 
 type AdviceJobs = TVar (M.Map Text AdviceJob)
 
-adviceSystemPrompt :: Text
-adviceSystemPrompt = intercalate "\n"
+-- | The system prompt. With a previous advice to follow on from, the report
+-- gains a section on what changed since then.
+adviceSystemPrompt :: Maybe SavedAdvice -> Text
+adviceSystemPrompt previous = intercalate "\n" $
     [ "あなたはOura Ringの健康データを解析する専門家アシスタントです。"
     , "ユーザーから過去14日間のOura Ringデータ（睡眠、準備度、活動量、ストレス、血中酸素濃度、体温偏差、回復力、VO2 Max、心血管年齢）が提供されます。"
     , "`sleep_periods` は各日の睡眠段階の実時間（秒）です。同じ日の本睡と仮眠を合算しています。"
     , "`bedtime_start`（就床）・`sleep_onset`（入眠）・`bedtime_end`（起床）はその日の本睡の時刻（記録地の時刻、HH:MM）です。`naps` は仮眠の回数、`nap_time_in_bed` はその合計時間（秒）です。"
     , "`average_hrv`（夜間平均HRV、ms）・`lowest_heart_rate`（最低心拍、bpm）・`average_heart_rate`（平均心拍、bpm）・`average_breath`（平均呼吸数、回/分）もその日の本睡の値です。"
-    , ""
+    ]
+    ++ whenPrevious
+    [ "データの後の `<previous_advice>` には前回のアドバイスが入っています。前回の保存日より後の日を中心に、前回指摘した点や提案がその後どうなったかをデータから評価してください。改善が見られない提案は同じ文言で繰り返さず、別の切り口を示してください。" ]
+    ++
+    [ ""
     , "## 役割"
     , "1. データを客観的に分析し、現在の健康状態を簡潔に要約する"
     , "2. トレンドや注目すべき変化点を特定する"
@@ -91,7 +102,14 @@ adviceSystemPrompt = intercalate "\n"
     , "### 📊 現在の健康状態"
     , "（各メトリクスの直近の数値とトレンドを2〜3文でまとめる）"
     , ""
-    , "### ⚠️ 注目ポイント"
+    ]
+    ++ whenPrevious
+    [ "### 🔁 前回からの変化"
+    , "（前回のアドバイス以降に改善・悪化した点と、前回の提案の効果が見られるかを2〜4項目の箇条書きで評価する）"
+    , ""
+    ]
+    ++
+    [ "### ⚠️ 注目ポイント"
     , "（気になる変化・改善が必要な項目を箇条書きで列挙。良い場合は「特になし」と記載）"
     , ""
     , "### 💡 アドバイス"
@@ -104,6 +122,8 @@ adviceSystemPrompt = intercalate "\n"
     , "- 医療的な診断は行わないこと"
     , ""
     ]
+  where
+    whenPrevious ls = if isJust previous then ls else []
 
 appendSystemPrompt :: String
 appendSystemPrompt =
@@ -213,31 +233,76 @@ clockAt offset ts =
 periodSeconds :: Text -> A.Value -> Int
 periodSeconds f r = fromMaybe 0 (jsonInt =<< jsonLookup f r)
 
--- | Build the 14-day health payload (period + per-metric key fields).
-buildHealthPayload :: (MonadIO m) => DayText -> Int -> ReaderT SqlBackend m A.Value
-buildHealthPayload today days = do
-    let start = addDaysT (negate (fromIntegral days - 1)) today
-        range = DateRange start today
+-- | How many days an advice analyses.
+adviceDays :: Int
+adviceDays = 14
+
+-- | The 'adviceDays' ending on the given day.
+advicePeriod :: DayText -> DateRange
+advicePeriod today =
+    DateRange (addDaysT (negate (fromIntegral adviceDays - 1)) today) today
+
+-- | Build the health payload over 'advicePeriod' (period + per-metric key
+-- fields).
+buildHealthPayload :: (MonadIO m) => DayText -> ReaderT SqlBackend m A.Value
+buildHealthPayload today = do
+    let range@(DateRange start _) = advicePeriod today
     bulk <- getDailyMetricsBulk dashboardMetrics range
     sleepPeriods <- getSleepPeriods range
     let metricsObj = KM.fromList
             [ ( K.fromText (dailyMetricName m)
               , A.toJSON (map (extractKeyFields m) (M.findWithDefault [] m bulk)) )
             | m <- dashboardMetrics ]
-        period = A.object ["start" A..= start, "end" A..= today, "days" A..= days]
+        period = A.object ["start" A..= start, "end" A..= today, "days" A..= adviceDays]
     return $ A.object
         [ "period"        A..= period
         , "metrics"       A..= A.Object metricsObj
         , "sleep_periods" A..= sleepStageTotals sleepPeriods
         ]
 
--- | Build the prompt string (system prompt + JSON code block).
-buildAdvicePrompt :: A.Value -> Text
-buildAdvicePrompt healthData =
-    adviceSystemPrompt <> "\n\n```json\n" <> prettyJson <> "\n```"
+-- | Build the prompt string: the system prompt, the JSON code block, and the
+-- previous advice (if any) for the report to follow on from.
+buildAdvicePrompt :: Maybe SavedAdvice -> A.Value -> Text
+buildAdvicePrompt previous healthData =
+    adviceSystemPrompt previous <> "\n\n```json\n" <> prettyJson <> "\n```"
+        <> foldMap previousBlock previous
   where
+    previousBlock p =
+        let DateRange start end = savedAdvicePeriod p
+        in "\n\n<previous_advice saved_at=\"" <> savedAdviceAt p
+            <> "\" period=\"" <> unDayText start <> ".." <> unDayText end <> "\">\n"
+            <> savedAdviceContent p <> "\n</previous_advice>"
     prettyJson = TL.toStrict $ decodeUtf8 $ AP.encodePretty' cfg healthData
     cfg = AP.defConfig { AP.confIndent = AP.Spaces 2, AP.confTrailingNewline = False }
+
+-- | The scores headlined over an advice report.
+comparisonMetrics :: [DailyMetric]
+comparisonMetrics = [Readiness, Sleep, Activity]
+
+-- | Each headline score's mean over the advice's period beside its mean over
+-- the previous advice's period, so the report shows how far things moved
+-- since then. Without a previous advice the @previous@ means are null.
+adviceComparison
+    :: (MonadIO m)
+    => DateRange -> Maybe SavedAdvice -> ReaderT SqlBackend m A.Value
+adviceComparison range previous = do
+    current <- getScoreAverages comparisonMetrics range
+    before <- maybe (pure M.empty) (getScoreAverages comparisonMetrics . savedAdvicePeriod) previous
+    return $ A.object
+        [ "previous" A..= fmap previousJson previous
+        , "scores" A..=
+            [ A.object
+                [ "metric"   A..= dailyMetricName m
+                , "average"  A..= M.lookup m current
+                , "previous" A..= M.lookup m before ]
+            | m <- comparisonMetrics ]
+        ]
+  where
+    previousJson p =
+        let DateRange start end = savedAdvicePeriod p
+        in A.object
+            [ "saved_at" A..= savedAdviceAt p
+            , "period"   A..= A.object ["start" A..= start, "end" A..= end] ]
 
 -- | Whether the payload holds any metric rows at all. With none there is
 -- nothing to analyse, and asking anyway only spends a claude call.
@@ -280,10 +345,10 @@ newAdviceJobs :: IO AdviceJobs
 newAdviceJobs = newTVarIO M.empty
 
 -- | Create a queued job with a fresh UUID and return its id.
-createAdviceJob :: AdviceJobs -> A.Value -> IO Text
-createAdviceJob jobs period = do
+createAdviceJob :: AdviceJobs -> A.Value -> A.Value -> IO Text
+createAdviceJob jobs period comparison = do
     jid <- UUID.toText <$> UUID.nextRandom
-    let job = AdviceJob jid Queued period "" Nothing
+    let job = AdviceJob jid Queued period comparison "" Nothing
     atomically $ modifyTVar' jobs (M.insert jid job)
     return jid
 

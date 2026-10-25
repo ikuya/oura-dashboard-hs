@@ -276,6 +276,17 @@ spec = do
             statusIs 200
             bodyContains "テストアドバイス"
 
+        it "history entry compares with the advice before it" $ do
+            login
+            insertMetric "sleep" "2024-01-05" (Just 70) "{}"
+            insertMetric "sleep" "2024-01-12" (Just 80) "{}"
+            insertAdvice "2024-01-08T10:00:00+00:00" "2023-12-26" "2024-01-08" "前のアドバイス"
+            insertAdvice "2024-01-14T10:00:00+00:00" "2024-01-01" "2024-01-14" "テストアドバイス"
+            get (AdviceEntryR "2024-01-14")
+            statusIs 200
+            bodyContains "\"saved_at\":\"2024-01-08T10:00:00+00:00\""
+            bodyContains "{\"average\":75,\"metric\":\"sleep\",\"previous\":70}"
+
         it "history entry invalid date returns 400" $ do
             login
             get (AdviceEntryR "not-a-date")
@@ -294,7 +305,7 @@ insertJob :: Text -> JobStatus -> Text -> Maybe Text -> YesodExample App ()
 insertJob jid st advice merr = do
     app <- getTestYesod
     let period = A.object ["start" .= ("2024-01-01" :: Text), "end" .= ("2024-01-14" :: Text), "days" .= (14 :: Int)]
-        job = AdviceJob jid st period advice merr
+        job = AdviceJob jid st period A.Null advice merr
     liftIO $ atomically $ modifyTVar' (appAdviceJobs app) (M.insert jid job)
 
 insertAdvice :: Text -> Text -> Text -> Text -> YesodExample App ()
