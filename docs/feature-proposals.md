@@ -84,3 +84,73 @@ README の「完全にローカル」に合わせて `static/vendor/` に置き�
   1 回逃す 13 時間超で黄、25 時間超で赤の警告に切り替える（一部のメトリックだけ遅れている
   場合はその名前を出す）。ヘッダーの CSV ボタンで表示中期間の日別データ（スコア・歩数・
   ストレス・SpO2・体温・睡眠時間/段階・夜間 HRV/心拍など）をダウンロード
+
+# 追加提案（2026-10-25）
+
+1〜8 の対応後に再調査した追加分。番号は上の続き。
+
+## 優先度：高（既存データで実装できる）
+
+### 9. Readiness の内訳（contributors）表示
+
+`daily_readiness` の `contributors` には `activity_balance` / `body_temperature` /
+`hrv_balance` / `previous_day_activity` / `previous_night` / `recovery_index` /
+`resting_heart_rate` / `sleep_balance` が入っているが、チャートで使っているのは
+`sleep_balance` だけ。今日のカードに「足を引っ張った上位 2 項目」を出すか、
+期間中の内訳をヒートマップ（行 = 項目、列 = 日）で見せると、スコアが下がった理由が
+一目で分かる。Sleep の contributors（`deep_sleep` / `latency` / `timing` など）も同様。
+
+### 10. ストレスと回復の対比
+
+Stress チャートは `stress_high` だけで、`recovery_high` と `day_summary`
+（restored / normal / stressful）は CSV にしか出ていない。high と recovery を
+上下に分けた棒グラフにし、`day_summary` を背景色で示す。
+
+### 11. Activity の詳細
+
+Activity で使っているのは歩数だけ。`high/medium/low_activity_time`・
+`sedentary_time`・`active_calories`・`inactivity_alerts` も取得済みなので、
+強度別の積み上げ棒と座りすぎ時間を出す。
+
+### 12. 翌日効果（ラグ相関）
+
+5 の相関ビューを前日 → 翌日に広げる。前日の活動量・高ストレス時間・就寝時刻と
+翌朝の Readiness / 夜間 HRV の散布図（r つき）。何をした翌日に回復が良いかが分かる。
+4（タグ同期）を入れればタグの有無もここで比較できる。
+
+### 13. 長期ビュー（月次平均・任意期間）
+
+期間は 7〜180 日のプリセットだけだが、DB には 2020 年からのデータがある。
+月次平均の推移（年単位のトレンドや季節性）と、開始日・終了日を自由に指定できる入力を追加する。
+
+## 優先度：中
+
+### 14. 推奨就寝時刻（`sleep_time`）の重ね描き
+
+未同期の `/v2/usercollection/sleep_time` は Oura が推奨する就寝時間帯を返す。
+Bedtime / Wake チャートに推奨帯を重ねれば、実際の就寝とのずれを確認できる。
+Advice にも渡せる。
+
+### 15. Advice の前回比較（7 の残り）
+
+生成時に直近の `advice_history` の本文をプロンプトに添えて「前回の提案以降どう変わったか」
+を書かせる。履歴画面では前回との期間平均スコアの差を見出しに出す。
+
+### 16. スマホのホーム画面アプリ化
+
+確認は主にスマホで行っているので、`manifest.json` とアイコンを置いて
+「ホーム画面に追加」で全画面起動できるようにする。オフライン対応は不要で、
+起動導線だけ短くなる。
+
+## 優先度：低（保守）
+
+### 17. `static/charts.js` の分割
+
+`charts.js` は 1,200 行近くあり、睡眠・バイタル・相関・共通部品が 1 ファイルに
+混在している。`charts/sleep.js` などに分けて、9〜13 を追加しやすくする。
+
+### 18. DB バックアップ
+
+`oura.db`（147 MB）はバックアップの仕組みがない。日次同期の後に
+`VACUUM INTO` で日付入りの複製を作り、古いものを世代管理で消す。
+Oura 側から再取得できないデータ（Advice 履歴）を守るのが主な目的。
