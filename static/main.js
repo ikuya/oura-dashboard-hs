@@ -1,6 +1,8 @@
 import { apiFetch } from "./api.js";
 import { localDateStr, todayStr, daysAgoStr, setStatus, mainPeriod, syncFreshness, formatAge } from "./helpers.js";
-import { renderAll, renderHypnogram, BASELINE_DAYS, AVERAGE_DAYS } from "./charts.js";
+import { renderAll } from "./charts.js";
+import { renderHypnogram } from "./charts/sleep.js";
+import { BASELINE_DAYS, AVERAGE_DAYS } from "./charts/baseline.js";
 import { dailyCsvRows, downloadCsv } from "./export.js";
 
 // Shared across advice IIFEs

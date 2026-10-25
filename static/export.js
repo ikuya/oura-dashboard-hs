@@ -1,5 +1,5 @@
 import { mainPeriod } from "./helpers.js";
-import { READINESS_CONTRIBUTORS, SLEEP_CONTRIBUTORS } from "./charts.js";
+import { READINESS_CONTRIBUTORS, SLEEP_CONTRIBUTORS } from "./charts/scores.js";
 
 // One row per day of the selected range, built from what the dashboard already
 // loaded, so the file holds exactly the numbers the charts are drawing.

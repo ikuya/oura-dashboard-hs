@@ -170,6 +170,12 @@ Advice にも渡せる。
 `charts.js` は 1,200 行近くあり、睡眠・バイタル・相関・共通部品が 1 ファイルに
 混在している。`charts/sleep.js` などに分けて、9〜13 を追加しやすくする。
 
+- 対応済み（2026-10-25）：`static/charts/` に `common.js`（Chart.js の既定値・`makeChart`・
+  系列色・日付ヘルパー）、`baseline.js`、`cards.js`、`scores.js`、`sleep.js`、`vitals.js`、
+  `correlation.js`、`stress.js`、`activity.js` として分け、`charts.js` は `renderAll` だけの
+  入口にした。`renderAll` に直書きしていたチャートも各モジュールの関数に移した。
+  同じデータで分割前と描画結果・チャート設定が一致することを確認済み
+
 ### 18. DB バックアップ
 
 `oura.db`（147 MB）はバックアップの仕組みがない。日次同期の後に

@@ -222,7 +222,7 @@ flowchart LR
 
 ### フロントエンド
 
-`static/main.js`（画面制御）・`charts.js`（Chart.js 描画）・`helpers.js`（共通関数）・`api.js`（`apiFetch` ラッパー、401 時にログインモーダルを出す）・`export.js`（表示中期間の CSV 生成）。Python 版と JSON 契約が同じなので変更なしで流用されている。
+`static/main.js`（画面制御）・`charts.js`（Chart.js 描画の入口。`renderAll` が `charts/` 配下のモジュールを呼ぶ：共通部品の `common.js`、7 日移動平均・28 日ベースラインの `baseline.js`、`cards.js`、`scores.js`（スコア推移と内訳ヒートマップ）、`sleep.js`、`vitals.js`、`correlation.js`、`stress.js`、`activity.js`）・`helpers.js`（共通関数）・`api.js`（`apiFetch` ラッパー、401 時にログインモーダルを出す）・`export.js`（表示中期間の CSV 生成）。Python 版と JSON 契約が同じなので変更なしで流用されている。
 
 ---
 
