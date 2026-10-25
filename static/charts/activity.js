@@ -18,7 +18,6 @@ const sedentaryHours = (r) => (r.sedentary_time == null ? null : r.sedentary_tim
 // days Oura sent inactivity alerts marked on that line.
 export function renderActivityBreakdown(activity, history, state) {
   const byDay = new Map(activity.map((r) => [r.day, r]));
-  const alertDays = activity.filter((r) => (r.inactivity_alerts ?? 0) > 0);
 
   makeChart("chart-activity-breakdown", state.charts, {
     type: "bar",
@@ -50,7 +49,12 @@ export function renderActivityBreakdown(activity, history, state) {
         {
           type: "line",
           label: "Inactivity alerts",
-          data: alertDays.map((r) => ({ x: r.day, y: sedentaryHours(r) })),
+          // One entry per day, null where there was no alert: the "index"
+          // tooltip lines the datasets up by index, and this one wins ties.
+          data: activity.map((r) => ({
+            x: r.day,
+            y: (r.inactivity_alerts ?? 0) > 0 ? sedentaryHours(r) : null,
+          })),
           yAxisID: "ySedentary",
           showLine: false,
           pointStyle: "triangle",
