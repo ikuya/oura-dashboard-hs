@@ -21,6 +21,7 @@ const DAILY_COLUMNS = [
   ["active_calories", "activity", (r) => r.active_calories],
   ["stress_high_min", "stress", (r) => minutes(r.stress_high)],
   ["recovery_high_min", "stress", (r) => minutes(r.recovery_high)],
+  ["stress_day_summary", "stress", (r) => r.day_summary],
   ["spo2_pct", "spo2", (r) => r.score],
   ["temperature_deviation_c", "temperature", (r) => r.temperature_deviation ?? r.score],
   ["resilience_level", "resilience", (r) => r.level],

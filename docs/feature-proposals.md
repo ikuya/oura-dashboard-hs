@@ -111,6 +111,11 @@ Stress チャートは `stress_high` だけで、`recovery_high` と `day_summar
 （restored / normal / stressful）は CSV にしか出ていない。high と recovery を
 上下に分けた棒グラフにし、`day_summary` を背景色で示す。
 
+- 対応済み（2026-10-25）：Stress チャートを高ストレス（0 より上）と高リカバリー（0 より下）の
+  棒グラフにし、それぞれに 7 日移動平均を重ねた。`day_summary` が stressful の日は赤、
+  restored の日は緑の背景で塗り、ツールチップにも出す。`day_summary` は実際には CSV に
+  入っていなかったので `stress_day_summary` 列として追加し、Advice にも渡すようにした
+
 ### 11. Activity の詳細
 
 Activity で使っているのは歩数だけ。`high/medium/low_activity_time`・

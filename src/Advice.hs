@@ -118,7 +118,9 @@ extractKeyFields metric row =
             Sleep       -> [("contributors", g "contributors")]
             Readiness   -> [("contributors", g "contributors")]
             Activity    -> [("active_calories", g "active_calories"), ("steps", g "steps")]
-            Stress      -> [("stress_high", g "stress_high"), ("recovery_high", g "recovery_high")]
+            Stress      ->
+                [ ("stress_high", g "stress_high"), ("recovery_high", g "recovery_high")
+                , ("day_summary", g "day_summary") ]
             Spo2        -> [("spo2_percentage", g "spo2_percentage")]
             Temperature ->
                 [ ("temperature_deviation", g "temperature_deviation")
