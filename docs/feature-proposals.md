@@ -122,6 +122,12 @@ Activity で使っているのは歩数だけ。`high/medium/low_activity_time`�
 `sedentary_time`・`active_calories`・`inactivity_alerts` も取得済みなので、
 強度別の積み上げ棒と座りすぎ時間を出す。
 
+- 対応済み（2026-10-25）：Activity by Intensity / Sedentary Time チャートを追加。
+  Low / Medium / High の活動時間（分）を積み上げ棒、座位時間（時間）を右軸の折れ線と
+  7 日移動平均で表示し、`inactivity_alerts` があった日は折れ線上に赤い三角で示す。
+  ツールチップに活動カロリーとアラート数を出す。CSV に強度別・座位時間（分）と
+  `inactivity_alerts` の列を追加し、Advice にも渡すようにした
+
 ### 12. 翌日効果（ラグ相関）
 
 5 の相関ビューを前日 → 翌日に広げる。前日の活動量・高ストレス時間・就寝時刻と

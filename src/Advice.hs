@@ -117,7 +117,13 @@ extractKeyFields metric row =
         extra = case metric of
             Sleep       -> [("contributors", g "contributors")]
             Readiness   -> [("contributors", g "contributors")]
-            Activity    -> [("active_calories", g "active_calories"), ("steps", g "steps")]
+            Activity    ->
+                [ ("active_calories", g "active_calories"), ("steps", g "steps")
+                , ("high_activity_time", g "high_activity_time")
+                , ("medium_activity_time", g "medium_activity_time")
+                , ("low_activity_time", g "low_activity_time")
+                , ("sedentary_time", g "sedentary_time")
+                , ("inactivity_alerts", g "inactivity_alerts") ]
             Stress      ->
                 [ ("stress_high", g "stress_high"), ("recovery_high", g "recovery_high")
                 , ("day_summary", g "day_summary") ]
