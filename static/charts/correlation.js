@@ -1,5 +1,8 @@
-import { makeChart, WEEKDAYS, SERIES_BLUE, SERIES_ORANGE, valuesByDay, dayWithWeekday } from "./common.js";
+import { makeChart, WEEKDAYS, SERIES_BLUE, SERIES_ORANGE, SERIES_AQUA,
+         valuesByDay, dayWithWeekday, addDaysStr } from "./common.js";
 import { bedtimeWakeRows, clockLabel } from "./sleep.js";
+import { nightlyVitalsRows } from "./vitals.js";
+import { stressMinutes } from "./stress.js";
 
 // --- Correlations ---
 
@@ -36,19 +39,46 @@ export function bedtimeScorePoints(periods, sleep) {
   });
 }
 
+// A linear x axis of clock times fitted to the points' bedtimes, with the
+// bounds snapped to the tick step.
+function clockScale(xs) {
+  const lo = xs.length ? Math.min(...xs) - 0.5 : 21;
+  const hi = xs.length ? Math.max(...xs) + 0.5 : 27;
+  const step = hi - lo > 8 ? 2 : 1;
+  return {
+    type: "linear",
+    min: Math.floor(lo / step) * step,
+    max: Math.ceil(hi / step) * step,
+    grid: { color: "#2a2d3a" },
+    title: { display: true, text: "Bedtime" },
+    ticks: { stepSize: step, callback: (v) => clockLabel(v) },
+  };
+}
+
+// The fitted line across the points' x range, as a dashed grey segment.
+function trendDataset(fit, xs) {
+  const at = (x) => ({ x, y: fit.slope * x + fit.intercept });
+  return {
+    type: "line",
+    label: "Trend",
+    data: [at(Math.min(...xs)), at(Math.max(...xs))],
+    borderColor: "#9ca3af",
+    borderDash: [6, 4],
+    borderWidth: 1.5,
+    pointRadius: 0,
+  };
+}
+
+const fitNote = (points, fit) => (points.length === 0 ? ""
+  : fit == null ? `n=${points.length}`
+  : `r = ${fit.r.toFixed(2)}, n=${points.length}`);
+
 export function renderBedtimeScore(periods, sleep, state) {
   const points = bedtimeScorePoints(periods, sleep);
   const fit = linearFit(points);
   const xs = points.map((p) => p.x);
-  const lo = xs.length ? Math.min(...xs) - 0.5 : 21;
-  const hi = xs.length ? Math.max(...xs) + 0.5 : 27;
-  const step = hi - lo > 8 ? 2 : 1;
-  const min = Math.floor(lo / step) * step;
-  const max = Math.ceil(hi / step) * step;
 
-  document.getElementById("bedtime-score-note").textContent = points.length === 0 ? ""
-    : fit == null ? `n=${points.length}`
-    : `r = ${fit.r.toFixed(2)}, n=${points.length}`;
+  document.getElementById("bedtime-score-note").textContent = fitNote(points, fit);
 
   const scatter = (label, color, pick) => ({
     type: "scatter",
@@ -58,7 +88,6 @@ export function renderBedtimeScore(periods, sleep, state) {
     borderColor: color,
     pointRadius: 4,
   });
-  const fitAt = (x) => ({ x, y: fit.slope * x + fit.intercept });
 
   makeChart("chart-bedtime-score", state.charts, {
     type: "scatter",
@@ -66,28 +95,13 @@ export function renderBedtimeScore(periods, sleep, state) {
       datasets: [
         scatter("Weeknight", SERIES_BLUE, (p) => !isWeekend(p.day)),
         scatter("Fri / Sat night", SERIES_ORANGE, (p) => isWeekend(p.day)),
-        ...(fit == null ? [] : [{
-          type: "line",
-          label: "Trend",
-          data: [fitAt(Math.min(...xs)), fitAt(Math.max(...xs))],
-          borderColor: "#9ca3af",
-          borderDash: [6, 4],
-          borderWidth: 1.5,
-          pointRadius: 0,
-        }]),
+        ...(fit == null ? [] : [trendDataset(fit, xs)]),
       ],
     },
     options: {
       responsive: true,
       scales: {
-        x: {
-          type: "linear",
-          min,
-          max,
-          grid: { color: "#2a2d3a" },
-          title: { display: true, text: "Bedtime" },
-          ticks: { stepSize: step, callback: (v) => clockLabel(v) },
-        },
+        x: clockScale(xs),
         y: { grid: { color: "#2a2d3a" }, title: { display: true, text: "Sleep score" } },
       },
       plugins: {
@@ -175,6 +189,136 @@ export function renderWeekdayAverages(series, state) {
               const w = ctx.dataset.weekdayStats.byWeekday[ctx.dataIndex];
               return `${ctx.dataset.label}: ${w.avg.toFixed(1)} (${signed(ctx.parsed.y)}, n=${w.n})`;
             },
+          },
+        },
+      },
+    },
+  });
+}
+
+// --- Next-day effects ---
+
+// What a day held against how the next morning came out. Activity and stress
+// are daytime totals, so day D's value meets day D+1's readiness and night.
+// A bedtime row is already dated by the morning its night ends in, so it
+// meets that same day. `causeDay` is the day the cause belongs to either way.
+const minutesOf = (seconds) => (seconds == null ? null : seconds / 60);
+const NEXT_DAY_CAUSES = [
+  { key: "steps", label: "Steps", axis: "Steps (day before)",
+    byDay: ({ metrics }) => shiftedValues(metrics.activity, (r) => r.steps),
+    format: (v) => Math.round(v).toLocaleString() },
+  { key: "active", label: "Med+High", axis: "Medium + high activity, min (day before)",
+    byDay: ({ metrics }) => shiftedValues(metrics.activity, (r) =>
+      r.medium_activity_time == null || r.high_activity_time == null ? null
+        : minutesOf(r.medium_activity_time + r.high_activity_time)),
+    format: (v) => `${Math.round(v)} min` },
+  { key: "stress", label: "High stress", axis: "High stress, min (day before)",
+    byDay: ({ metrics }) => shiftedValues(metrics.stress, stressMinutes),
+    format: (v) => `${Math.round(v)} min` },
+  { key: "bedtime", label: "Bedtime", axis: "Bedtime (night before)", clock: true,
+    byDay: ({ periods }) => new Map(bedtimeWakeRows(periods).flatMap((r) =>
+      r.main ? [[r.day, { x: r.bed, causeDay: addDaysStr(r.day, -1) }]] : [])),
+    format: clockLabel },
+];
+
+const NEXT_DAY_OUTCOMES = [
+  { key: "readiness", label: "Readiness", axis: "Readiness", color: SERIES_AQUA,
+    byDay: ({ metrics }) => valuesByDay(metrics.readiness ?? [], (r) => r.score),
+    format: (v) => String(v) },
+  { key: "hrv", label: "Night HRV", axis: "Average HRV (ms)", color: SERIES_BLUE,
+    byDay: ({ periods }) => valuesByDay(nightlyVitalsRows(periods), (r) => r.hrv),
+    format: (v) => `${v} ms` },
+];
+
+// Daily values keyed by the following day, the one whose morning they meet.
+function shiftedValues(records, value) {
+  return new Map([...valuesByDay(records ?? [], value)].map(([day, x]) =>
+    [addDaysStr(day, 1), { x, causeDay: day }]));
+}
+
+// One point per morning in the range that has both the outcome and the cause.
+// The causes come from `source`, which reaches back past the range, so the
+// range's first morning still gets the day before it.
+export function nextDayPoints(source, cause, outcome, rangeStart) {
+  const causes = cause.byDay(source);
+  return [...outcome.byDay(source)].flatMap(([day, y]) => {
+    const c = causes.get(day);
+    return c && (rangeStart == null || day >= rangeStart) ? [{ x: c.x, y, day, causeDay: c.causeDay }] : [];
+  });
+}
+
+const signedR = (r) => `${r > 0 ? "+" : r < 0 ? "−" : "±"}${Math.abs(r).toFixed(2)}`;
+
+// Chips that pick one of `options`; each label can carry a suffix (the
+// cause chips show their r against the selected outcome).
+function renderChoice(id, options, selected, suffix, onPick) {
+  document.getElementById(id).replaceChildren(...options.map((o) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `chart-mode-btn${o.key === selected ? " active" : ""}`;
+    button.textContent = `${o.label}${suffix(o)}`;
+    button.addEventListener("click", () => onPick(o.key));
+    return button;
+  }));
+}
+
+// `source` is { metrics, periods } covering the range and the days before it.
+export function renderNextDay(source, state) {
+  const pick = state.nextDay;
+  const cause = NEXT_DAY_CAUSES.find((c) => c.key === pick.cause) ?? NEXT_DAY_CAUSES[0];
+  const outcome = NEXT_DAY_OUTCOMES.find((o) => o.key === pick.outcome) ?? NEXT_DAY_OUTCOMES[0];
+  const rerender = (change) => {
+    Object.assign(state.nextDay, change);
+    renderNextDay(source, state);
+  };
+
+  const fits = new Map(NEXT_DAY_CAUSES.map((c) =>
+    [c.key, linearFit(nextDayPoints(source, c, outcome, state.rangeStart))]));
+  renderChoice("next-day-cause", NEXT_DAY_CAUSES, cause.key, (c) => {
+    const fit = fits.get(c.key);
+    return fit ? ` ${signedR(fit.r)}` : "";
+  }, (key) => rerender({ cause: key }));
+  renderChoice("next-day-outcome", NEXT_DAY_OUTCOMES, outcome.key, () => "",
+               (key) => rerender({ outcome: key }));
+
+  const points = nextDayPoints(source, cause, outcome, state.rangeStart);
+  const fit = fits.get(cause.key);
+  const xs = points.map((p) => p.x);
+  document.getElementById("next-day-note").textContent = fitNote(points, fit);
+
+  makeChart("chart-next-day", state.charts, {
+    type: "scatter",
+    data: {
+      datasets: [
+        {
+          type: "scatter",
+          label: `${outcome.label} next morning`,
+          data: points,
+          backgroundColor: outcome.color + "cc",
+          borderColor: outcome.color,
+          pointRadius: 4,
+        },
+        ...(fit == null ? [] : [trendDataset(fit, xs)]),
+      ],
+    },
+    options: {
+      responsive: true,
+      scales: {
+        x: cause.clock
+          ? { ...clockScale(xs), title: { display: true, text: cause.axis } }
+          : { type: "linear", grid: { color: "#2a2d3a" }, title: { display: true, text: cause.axis } },
+        y: { grid: { color: "#2a2d3a" }, title: { display: true, text: `${outcome.axis} (next morning)` } },
+      },
+      plugins: {
+        legend: { position: "top" },
+        tooltip: {
+          filter: (item) => item.raw?.day != null,
+          callbacks: {
+            title: (items) => {
+              const p = items[0]?.raw;
+              return p ? `${dayWithWeekday(p.causeDay)} → ${WEEKDAYS[new Date(`${p.day}T00:00:00Z`).getUTCDay()]} morning` : "";
+            },
+            label: (ctx) => `${cause.label} ${cause.format(ctx.raw.x)} · ${outcome.label} ${outcome.format(ctx.raw.y)}`,
           },
         },
       },

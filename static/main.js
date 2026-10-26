@@ -24,6 +24,7 @@ const state = {
   history: null,      // { metrics, sleepPeriods } reaching back past the range for the baselines
   sleepDay: null,     // selected night; null means "the latest one loaded"
   sleepPeriodId: null, // selected period within that night; null means the main sleep
+  nextDay: { cause: "steps", outcome: "readiness" }, // Next-Day Effects selection
   hrDate: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })(),
 };
 

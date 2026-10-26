@@ -9,7 +9,7 @@ import { renderScores, renderSleepQuality, renderContributorHeatmap,
 import { renderStageDurations, renderBedtimeWake } from "./charts/sleep.js";
 import { nightlyVitalsRows, renderNightlyVitals, renderSpo2, renderTemperature,
          renderHeartRate, renderResilience, renderCardioAge } from "./charts/vitals.js";
-import { renderBedtimeScore, renderWeekdayAverages } from "./charts/correlation.js";
+import { renderBedtimeScore, renderWeekdayAverages, renderNextDay } from "./charts/correlation.js";
 import { renderStressRecovery } from "./charts/stress.js";
 import { renderActivityBreakdown, renderSteps } from "./charts/activity.js";
 
@@ -40,6 +40,7 @@ export function renderAll(data, hrData, state) {
     { label: "Sleep", records: sleep, color: SERIES_BLUE },
     { label: "Activity", records: activity, color: SERIES_ORANGE },
   ], state);
+  renderNextDay({ metrics: history, periods: state.history?.sleepPeriods ?? periods }, state);
 
   renderStressRecovery(stress, past("stress"), state);
   renderActivityBreakdown(activity, past("activity"), state);
