@@ -195,6 +195,35 @@ spec = do
                 getScoreAverages [Sleep, Readiness, Activity] (DateRange "2024-01-01" "2024-01-03")
             avgs `shouldBe` M.fromList [(Sleep, 75)]
 
+    describe "get_monthly_means" $ do
+        let month m mean days = A.object ["month" .= (m :: Text), "mean" .= (mean :: Double), "days" .= (days :: Int)]
+
+        it "averages each series by calendar month, skipping days without a value" $ do
+            means <- runMem $ do
+                upsertDailyMetric Readiness "2024-01-30" (Just 70) (A.object [])
+                upsertDailyMetric Readiness "2024-01-31" (Just 80) (A.object [])
+                upsertDailyMetric Readiness "2024-02-01" (Just 60) (A.object [])
+                upsertDailyMetric Readiness "2024-02-02" Nothing (A.object [])
+                upsertDailyMetric Activity "2024-01-31" (Just 90) (A.object ["steps" .= (8000 :: Int)])
+                upsertDailyMetric Activity "2024-02-01" (Just 50) (A.object [])
+                getMonthlyMeans
+            M.lookup "readiness" means `shouldBe` Just [month "2024-01" 75 2, month "2024-02" 60 1]
+            M.lookup "activity" means `shouldBe` Just [month "2024-01" 90 1, month "2024-02" 50 1]
+            M.lookup "steps" means `shouldBe` Just [month "2024-01" 8000 1]
+            M.lookup "sleep" means `shouldBe` Just []
+
+        it "reads the night vitals off each day's main sleep period" $ do
+            let hrv v p = p `withField` ("average_hrv", A.Number v)
+            means <- runMem $ do
+                _ <- upsertSleepPeriods
+                    [ hrv 40 (sleepPeriod "a" "2024-01-01" "2023-12-31T23:30:00+09:00" "long_sleep")
+                    , hrv 99 (sleepPeriod "b" "2024-01-01" "2024-01-01T14:00:00+09:00" "sleep")
+                    , hrv 60 (sleepPeriod "c" "2024-01-02" "2024-01-01T23:30:00+09:00" "long_sleep")
+                    , hrv 99 (sleepPeriod "d" "2024-01-03" "2024-01-03T19:00:00+09:00" "late_nap") ]
+                getMonthlyMeans
+            M.lookup "average_hrv" means `shouldBe` Just [month "2024-01" 50 2]
+            M.lookup "lowest_heart_rate" means `shouldBe` Just []
+
     describe "upsert_sleep_periods / get_sleep_periods" $ do
         it "inserts records" $ do
             rows <- runMem $ do

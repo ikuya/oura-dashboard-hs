@@ -20,7 +20,14 @@
       <button data-days="30" class="active">30d</button>
       <button data-days="90">90d</button>
       <button data-days="180">180d</button>
+      <button id="range-custom-btn" type="button" title="開始日と終了日を指定">Custom</button>
     </div>
+    <form id="custom-range" class="custom-range hidden">
+      <input type="date" name="start" aria-label="開始日" required />
+      <span>–</span>
+      <input type="date" name="end" aria-label="終了日" required />
+      <button type="submit">Apply</button>
+    </form>
     <button id="sync-btn">Sync</button>
     <button id="advice-btn">Advice</button>
     <button id="csv-btn" title="表示中の期間を日別 CSV でダウンロード">CSV</button>
@@ -247,6 +254,19 @@
     <div class="chart-card">
       <h2>Cardiovascular Age</h2>
       <div class="chart-box short"><canvas id="chart-cardio"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Monthly averages over the whole history, whatever the range -->
+  <div class="chart-row">
+    <div class="chart-card">
+      <h2>Monthly Averages
+        <span style="font-weight:400;text-transform:none;letter-spacing:0;">
+          <span id="monthly-views" class="chart-mode-btns"></span>
+          <span id="monthly-note" class="chart-note"></span>
+        </span>
+      </h2>
+      <div class="chart-box"><canvas id="chart-monthly"></canvas></div>
     </div>
   </div>
 

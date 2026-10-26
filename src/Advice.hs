@@ -49,7 +49,7 @@ import Data.Time.LocalTime        (addLocalTime, zonedTimeToLocalTime)
 
 import DateText                   (DateRange (..), DayText (..), addDaysT)
 import Db
-import Json                       (jsonInt, jsonText, jsonLookup)
+import Json                       (jsonText, jsonLookup)
 import Metric                     (DailyMetric (..), dailyMetricName,
                                    dashboardMetrics)
 import Logging                    (AppLog (..))
@@ -208,18 +208,6 @@ sleepVitalFields :: [Text]
 sleepVitalFields =
     ["average_hrv", "lowest_heart_rate", "average_heart_rate", "average_breath"]
 
--- | The long sleep if the day has one, otherwise its longest period by time in
--- bed (the first of equals). A late nap is never the night's sleep, so a day
--- holding nothing else has no main period. Mirrors @mainPeriod@ in
--- static/helpers.js.
-mainSleepPeriod :: [A.Value] -> Maybe A.Value
-mainSleepPeriod rows =
-    find ((== Just "long_sleep") . sleepType) candidates
-        <|> headMay (sortOn (Down . periodSeconds "time_in_bed") candidates)
-  where
-    sleepType = jsonText <=< jsonLookup "type"
-    candidates = filter ((/= Just "late_nap") . sleepType) rows
-
 -- | "HH:MM" on the wall clock where the period was recorded, @offset@ seconds
 -- after the given ISO 8601 timestamp. The timestamp's own UTC offset is kept
 -- rather than converting to the server's zone, so a night abroad reads as the
@@ -229,9 +217,6 @@ clockAt offset ts =
     pack . formatTime defaultTimeLocale "%H:%M"
          . addLocalTime (fromIntegral offset) . zonedTimeToLocalTime
         <$> iso8601ParseM (unpack ts)
-
-periodSeconds :: Text -> A.Value -> Int
-periodSeconds f r = fromMaybe 0 (jsonInt =<< jsonLookup f r)
 
 -- | How many days an advice analyses.
 adviceDays :: Int

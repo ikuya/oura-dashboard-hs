@@ -72,6 +72,11 @@ getMetricR name = do
     rows <- runDB $ Db.getDailyMetrics metric range
     returnJson rows
 
+-- | The monthly means over every stored day, for the long-term view. Unlike
+-- the other reads it takes no range: its point is the whole history.
+getMonthlyR :: Handler Value
+getMonthlyR = returnJson =<< runDB Db.getMonthlyMeans
+
 -- Heartrate --------------------------------------------------------------
 
 getHeartrateR :: Handler Value

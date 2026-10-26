@@ -218,6 +218,7 @@ routeAccess route = case route of
     LogoutR          -> Public
     MetricsR         -> Api
     MetricR _        -> Api
+    MonthlyR         -> Api
     HeartrateR       -> Api
     SleepPeriodsR    -> Api
     SyncStatusR      -> Api

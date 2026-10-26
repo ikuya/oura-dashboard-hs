@@ -2,6 +2,8 @@ import { apiFetch } from "./api.js";
 import { localDateStr, todayStr, daysAgoStr, setStatus, mainPeriod, syncFreshness, formatAge } from "./helpers.js";
 import { renderAll } from "./charts.js";
 import { renderHypnogram } from "./charts/sleep.js";
+import { renderMonthly } from "./charts/longterm.js";
+import { addDaysStr } from "./charts/common.js";
 import { BASELINE_DAYS, AVERAGE_DAYS } from "./charts/baseline.js";
 import { dailyCsvRows, downloadCsv } from "./export.js";
 
@@ -15,6 +17,7 @@ let renderSleepStages = () => {};
 // --- State ---
 const state = {
   days: 30,
+  customRange: null,  // { start, end } picked by hand; null means the `days` preset
   charts: {},
   hrMode: "7d",
   rangeStart: null,   // first day of the selected range
@@ -25,6 +28,8 @@ const state = {
   sleepDay: null,     // selected night; null means "the latest one loaded"
   sleepPeriodId: null, // selected period within that night; null means the main sleep
   nextDay: { cause: "steps", outcome: "readiness" }, // Next-Day Effects selection
+  monthly: null,      // /api/monthly, fetched once and again after a sync
+  monthlyView: "scores",
   hrDate: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })(),
 };
 
@@ -69,12 +74,11 @@ async function loadSyncStatus() {
 
 // --- Main load ---
 async function loadData() {
-  const end = todayStr();
-  const start = daysAgoStr(state.days);
-  // The baselines need history before the range: the card compares today with
-  // the BASELINE_DAYS before it, and the moving average at the range's first
-  // day reaches AVERAGE_DAYS back.
-  const historyStart = daysAgoStr(Math.max(state.days + AVERAGE_DAYS, BASELINE_DAYS + 1));
+  const { start, end } = state.customRange ?? { start: daysAgoStr(state.days), end: todayStr() };
+  // The baselines need history before the range: the card compares the last
+  // day with the BASELINE_DAYS before it, and the moving average at the
+  // range's first day reaches AVERAGE_DAYS back.
+  const historyStart = [addDaysStr(start, -AVERAGE_DAYS), addDaysStr(end, -(BASELINE_DAYS + 1))].sort()[0];
   const hrStart = state.hrMode === "1d" ? state.hrDate : daysAgoStr(7);
   const hrEnd = state.hrMode === "1d" ? state.hrDate : end;
 
@@ -102,11 +106,22 @@ async function loadData() {
 
     renderAll(data, hrData, state);
     renderSleepStages();
+    await loadMonthly();
     setStatus("");
     await loadSyncStatus();
   } catch (e) {
     setStatus(`Error: ${e.message}`, true);
   }
+}
+
+// The whole history does not change with the range, so it is fetched once.
+async function loadMonthly() {
+  if (!state.monthly) {
+    const res = await apiFetch("/api/monthly");
+    if (!res.ok) throw new Error(`Monthly fetch failed: ${res.status}`);
+    state.monthly = await res.json();
+  }
+  renderMonthly(state.monthly, state);
 }
 
 // --- Sync button ---
@@ -139,6 +154,7 @@ document.getElementById("sync-btn").addEventListener("click", async () => {
     } else {
       setStatus(msg);
     }
+    state.monthly = null;
     await loadData();
   } catch (e) {
     setStatus(`Sync error: ${e.message}`, true);
@@ -156,13 +172,55 @@ document.getElementById("csv-btn").addEventListener("click", () => {
 });
 
 // --- Range buttons ---
-document.querySelectorAll(".range-btns button").forEach((btn) => {
+const customForm = document.getElementById("custom-range");
+const customBtn = document.getElementById("range-custom-btn");
+
+function markRangeButton(active) {
+  document.querySelectorAll(".range-btns button").forEach((b) => b.classList.toggle("active", b === active));
+}
+
+document.querySelectorAll(".range-btns button[data-days]").forEach((btn) => {
   btn.addEventListener("click", () => {
-    document.querySelectorAll(".range-btns button").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
+    markRangeButton(btn);
+    customForm.classList.add("hidden");
+    state.customRange = null;
     state.days = parseInt(btn.dataset.days, 10);
     loadData();
   });
+});
+
+// A range picked by hand. The charts load every sleep period in it with its
+// 5-minute series, so it is capped at a year; the Monthly Averages chart
+// covers longer spans.
+const MAX_CUSTOM_DAYS = 366;
+
+customBtn.addEventListener("click", () => {
+  const opening = customForm.classList.contains("hidden");
+  customForm.classList.toggle("hidden", !opening);
+  if (opening) {
+    customForm.elements.start.value = state.rangeStart ?? daysAgoStr(state.days);
+    customForm.elements.end.value = state.rangeEnd ?? todayStr();
+    customForm.elements.end.max = todayStr();
+  }
+});
+
+customForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const start = customForm.elements.start.value;
+  const end = customForm.elements.end.value;
+  if (!start || !end || start > end) {
+    setStatus("Custom range: the start has to be on or before the end.", true);
+    return;
+  }
+  const days = Math.round((new Date(`${end}T00:00:00Z`) - new Date(`${start}T00:00:00Z`)) / 86400000) + 1;
+  if (days > MAX_CUSTOM_DAYS) {
+    setStatus(`Custom range: at most ${MAX_CUSTOM_DAYS} days (this is ${days}).`, true);
+    return;
+  }
+  markRangeButton(customBtn);
+  customForm.classList.add("hidden");
+  state.customRange = { start, end };
+  loadData();
 });
 
 // --- HR mode buttons ---

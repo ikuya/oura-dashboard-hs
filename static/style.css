@@ -55,6 +55,21 @@ header h1 { font-size: 20px; font-weight: 700; flex: 1; }
   color: var(--text);
 }
 
+/* The hand-picked range (main.js "Range buttons"), shown under the presets */
+.custom-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.custom-range input,
+.custom-range button {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  color-scheme: dark;
+}
+.custom-range button { cursor: pointer; }
+.custom-range button:hover { border-color: var(--accent); }
+
 .chart-mode-btns { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 8px; vertical-align: middle; }
 .chart-mode-btn {
   padding: 2px 8px;

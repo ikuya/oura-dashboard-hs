@@ -16,10 +16,11 @@ import qualified Data.Aeson          as A
 import qualified Data.Aeson.Key      as K
 import qualified Data.Aeson.KeyMap   as KM
 import qualified Data.Map.Strict     as M
+import Data.Monoid                (Sum (..))
 import Database.Persist.Sql       (rawExecute, rawSql, Single (..))
 
 import DateText
-import Json                       (jsonLookup, jsonText)
+import Json                       (jsonDouble, jsonInt, jsonLookup, jsonText)
 import Metric
 
 -- | Current UTC time as an ISO-8601 string, matching Python's
@@ -212,6 +213,87 @@ getSleepPeriods (DateRange start end) = do
 projectSleepPeriod :: A.Object -> A.Value
 projectSleepPeriod =
     A.Object . KM.filterWithKey (\k _ -> K.toText k `elem` sleepPeriodFields)
+
+-- | The long sleep if the day has one, otherwise its longest period by time in
+-- bed (the first of equals). A late nap is never the night's sleep, so a day
+-- holding nothing else has no main period. Mirrors @mainPeriod@ in
+-- static/helpers.js.
+mainSleepPeriod :: [A.Value] -> Maybe A.Value
+mainSleepPeriod rows =
+    find ((== Just "long_sleep") . sleepType) candidates
+        <|> headMay (sortOn (Down . periodSeconds "time_in_bed") candidates)
+  where
+    sleepType = jsonText <=< jsonLookup "type"
+    candidates = filter ((/= Just "late_nap") . sleepType) rows
+
+periodSeconds :: Text -> A.Value -> Int
+periodSeconds f r = fromMaybe 0 (jsonInt =<< jsonLookup f r)
+
+-- monthly means -----------------------------------------------------------
+
+-- | The series of the long-term view that are one value per row of a daily
+-- metric: the name it is served under, the metric, and the SQL expression
+-- for the value.
+monthlyDailySeries :: [(Text, DailyMetric, Text)]
+monthlyDailySeries =
+    [ ("readiness", Readiness, "score")
+    , ("sleep", Sleep, "score")
+    , ("activity", Activity, "score")
+    , ("steps", Activity, "json_extract(data_json, '$.steps')")
+    , ("stress_high", Stress, "json_extract(data_json, '$.stress_high')")
+    ]
+
+-- | The per-night vitals of the long-term view, read off each day's main
+-- sleep period.
+monthlySleepFields :: [Text]
+monthlySleepFields = ["average_hrv", "lowest_heart_rate"]
+
+-- | Each calendar month's mean of the given daily values, with the number of
+-- days behind it, in month order.
+monthlyMeans :: [(DayText, Double)] -> [A.Value]
+monthlyMeans values =
+    [ A.object ["month" A..= month, "mean" A..= (total / fromIntegral n), "days" A..= n]
+    | (month, (Sum total, Sum n)) <- M.toList byMonth ]
+  where
+    byMonth :: Map Text (Sum Double, Sum Int)
+    byMonth = M.fromListWith (<>)
+        [ (take 7 (unDayText day), (Sum v, Sum 1)) | (day, v) <- values ]
+
+-- | The monthly means of every series of the long-term view over all stored
+-- days, keyed by series name. A month without a value for a series is absent
+-- from its list.
+getMonthlyMeans :: (MonadIO m) => ReaderT SqlBackend m (Map Text [A.Value])
+getMonthlyMeans = do
+    daily <- forM monthlyDailySeries $ \(name, metric, expr) -> do
+        rows <- rawSql
+            ("SELECT day, CAST(" <> expr <> " AS REAL) FROM daily_metrics WHERE metric = ? AND "
+                <> expr <> " IS NOT NULL")
+            [toPersistValue (dailyMetricName metric)]
+        return (name, monthlyMeans [ (day, v) | (Single day, Single v) <- rows ])
+    nights <- mainSleepPeriods
+    let vitals = [ (f, monthlyMeans [ (day, v) | (day, p) <- nights
+                                               , Just v <- [jsonDouble =<< jsonLookup f p] ])
+                 | f <- monthlySleepFields ]
+    return $ M.fromList (daily ++ vitals)
+
+-- | Every stored day's main sleep period, narrowed to what picking it and
+-- 'monthlySleepFields' need. The whole records hold the 5-minute series, so
+-- the fields are extracted in SQL rather than decoding each one here.
+mainSleepPeriods :: (MonadIO m) => ReaderT SqlBackend m [(DayText, A.Value)]
+mainSleepPeriods = do
+    let fields = "type" : "time_in_bed" : monthlySleepFields
+        extract f = "'" <> f <> "', json_extract(data_json, '$." <> f <> "')"
+    rows <- rawSql
+        ("SELECT day, json_object(" <> intercalate ", " (map extract fields)
+            <> ") FROM sleep_periods WHERE type NOT IN ("
+            <> intercalate "," (map (const "?") hiddenSleepTypes)
+            <> ") AND " <> countedSleepCondition <> " ORDER BY bedtime_start")
+        (map toPersistValue hiddenSleepTypes)
+    -- Ordered by bedtime_start and appended with @flip (++)@, so each day's
+    -- periods keep the order 'mainSleepPeriod' breaks ties by.
+    let byDay = M.fromListWith (flip (++))
+            [ (day, [A.Object (parseDataJson p)]) | (Single day, Single p) <- rows ]
+    return [ (day, p) | (day, ps) <- M.toList byDay, Just p <- [mainSleepPeriod ps] ]
 
 -- save_advice
 saveAdvice
