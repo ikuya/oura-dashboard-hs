@@ -145,6 +145,21 @@ stack exec oura-daily-sync
 Wire it into cron via `run_daily_sync.sh` (runs a few times a day so intraday
 heart-rate data stays current).
 
+### Database backups
+
+After each sync, `oura-daily-sync` copies the database into `BACKUP_DIR` with
+SQLite's `VACUUM INTO`, as `oura-YYYY-MM-DD.db`. Later runs on the same day
+replace that day's copy, and only the newest `BACKUP_KEEP` (default 14) are
+kept; other files in the directory are left alone. The copy is consistent even
+while the web server writes. A failed backup is logged and makes the run exit 1,
+but does not stop the sync.
+
+`BACKUP_DIR` is unset by default, so backups are off unless asked for;
+`run_daily_sync.sh` sets it to `backup/`. Oura can resend everything except
+the advice history, which is what the backups are for. To restore, stop the
+server and copy a backup over `oura.db` (removing `oura.db-wal` and
+`oura.db-shm`).
+
 ## Scheduled Advice
 
 The `oura-advice` executable generates advice over the last 14 days, the same
@@ -242,6 +257,7 @@ src/Oura.hs                       Oura Ring API v2 client (record of fetch funct
 src/Sync.hs                       Incremental sync logic (ported from sync.py)
 src/Advice.hs                     Advice job state + claude CLI worker
 src/DailySync.hs                  Daily sync CLI (cron)
+src/Backup.hs                     Daily database backup (VACUUM INTO, pruning)
 src/ScheduledAdvice.hs            Scheduled advice CLI (cron)
 src/Logging.hs                    Log destination setup (LOG_FILE, stdout fallback)
 src/Foundation.hs                 App foundation, per-route auth, CSRF, session cookie

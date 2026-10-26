@@ -17,6 +17,9 @@ export LOG_FILE="$WORK_DIR/log/oura-daily-sync.log"
 # separate file, so the two writers never share one handle.
 STDIO_LOG="$WORK_DIR/log/oura-daily-sync.stdio.log"
 
+# Daily VACUUM INTO copies of oura.db, mainly for the advice history.
+export BACKUP_DIR="$WORK_DIR/backup"
+
 # Prefer the installed binary; fall back to `stack exec` if not installed.
 BIN="$(stack path --local-install-root 2>/dev/null)/bin/oura-daily-sync"
 if [ -x "$BIN" ]; then

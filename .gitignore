@@ -9,6 +9,7 @@ oura.db
 oura.db-shm
 oura.db-wal
 log/
+backup/
 nohup.out
 *.hi
 *.o

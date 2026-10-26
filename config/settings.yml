@@ -52,6 +52,14 @@ log-file: "_env:LOG_FILE:"
 # lines use "%Y-%m-%d %H:%M:%S", so separate files are easier to read.
 access-log-file: "_env:ACCESS_LOG_FILE:"
 
+# Database backups made by oura-daily-sync after each sync: one VACUUM INTO copy
+# per day (oura-YYYY-MM-DD.db, replaced by later runs that day), keeping the
+# newest backup-keep. Empty (the default) disables them, so that a dev run
+# against a copy of the database cannot overwrite today's real backup;
+# run_daily_sync.sh sets it to backup/.
+backup-dir:  "_env:BACKUP_DIR:"
+backup-keep: "_env:BACKUP_KEEP:14"
+
 # App secrets, sourced from .env (loaded via Configuration.Dotenv at startup).
 # SECRET_KEY is required and validated in makeFoundation.
 oura-token:   "_env:OURA_TOKEN:"

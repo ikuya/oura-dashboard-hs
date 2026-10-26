@@ -141,6 +141,19 @@ stack exec oura-daily-sync
 `run_daily_sync.sh` を cron に登録して運用します（日中の心拍データを最新に保つため、
 1日に数回実行する想定です）。
 
+### DB バックアップ
+
+`oura-daily-sync` は同期の後、SQLite の `VACUUM INTO` で DB を `BACKUP_DIR` に
+`oura-YYYY-MM-DD.db` として複製します。同じ日の 2 回目以降はその日の複製を置き換え、
+新しい順に `BACKUP_KEEP` 個（既定 14）だけを残します（ディレクトリ内の他のファイルには
+触れません）。Web サーバの書き込み中でも整合した複製になります。バックアップに失敗すると
+ログに出して終了コード 1 になりますが、同期は止めません。
+
+`BACKUP_DIR` は既定で未設定（バックアップしない）で、`run_daily_sync.sh` が `backup/` を
+指定します。Oura から再取得できない Advice 履歴を守るのが目的です。復元するときは
+サーバを止め、バックアップを `oura.db` に上書きコピーします（`oura.db-wal` と
+`oura.db-shm` は削除）。
+
 ## 定期アドバイス
 
 `oura-advice` 実行ファイルは、Advice ボタンと同じ直近14日間でアドバイスを生成し、
@@ -237,6 +250,7 @@ src/Oura.hs                       Oura Ring API v2 クライアント（取得�
 src/Sync.hs                       差分同期ロジック (sync.py の移植)
 src/Advice.hs                     アドバイスのジョブ状態管理 + claude CLI ワーカー
 src/DailySync.hs                  日次同期 CLI (cron)
+src/Backup.hs                     日次 DB バックアップ (VACUUM INTO・世代管理)
 src/ScheduledAdvice.hs            定期アドバイス CLI (cron)
 src/Logging.hs                    ログ出力先の設定 (LOG_FILE、stdout フォールバック)
 src/Foundation.hs                 アプリ基盤、ルート単位の認可、CSRF、セッション Cookie

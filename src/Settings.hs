@@ -77,6 +77,12 @@ data AppSettings = AppSettings
     , appAccessLogFile          :: Maybe FilePath
     -- ^ Request-log destination. @Nothing@ (the default) merges request lines
     -- into 'appLogFile', preserving the previous single-file behavior.
+
+    , appBackupDir              :: Maybe FilePath
+    -- ^ Where the daily sync writes its database backups. @Nothing@ (the
+    -- default) turns backups off.
+    , appBackupKeep             :: Int
+    -- ^ How many daily backups to keep; older ones are deleted.
     }
 
 instance FromJSON AppSettings where
@@ -119,6 +125,11 @@ instance FromJSON AppSettings where
         accessLogFile             <- o .:? "access-log-file" .!= ""
         let appAccessLogFile =
                 if null accessLogFile then Nothing else Just accessLogFile
+
+        -- An unset BACKUP_DIR means no backups (dev runs against a copy).
+        backupDir                 <- o .:? "backup-dir"   .!= ""
+        let appBackupDir = if null backupDir then Nothing else Just backupDir
+        appBackupKeep             <- o .:? "backup-keep"  .!= 14
 
         return AppSettings {..}
 

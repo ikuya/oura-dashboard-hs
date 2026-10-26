@@ -6,7 +6,8 @@
 -- | Daily sync CLI, ported from daily_sync.py.
 --
 -- Runs an incremental sync with a 7-day backfill and exits 1 when any metric
--- errored. Shares the settings/.env loading with the web app but builds only a
+-- errored, then backs up the database (see Backup), also exiting 1 when that
+-- fails. Shares the settings/.env loading with the web app but builds only a
 -- DB pool (no full foundation). Logs go wherever LOG_FILE points, defaulting to
 -- stdout; see Logging.
 module DailySync (dailySyncMain) where
@@ -20,10 +21,11 @@ import System.Exit                (exitWith, ExitCode (..))
 import System.Log.FastLogger      (flushLogStr)
 
 import Application (getAppSettings)
+import Backup      (backupDatabase)
 import DateText    (DayText, todayIn)
 import Logging     (AppLog, newAppLog, newAppLoggerSet, runLog)
-import Settings    (AppSettings, appDatabaseConf, appLogFile, appOuraToken,
-                    appShouldLogAll)
+import Settings    (AppSettings, appBackupDir, appBackupKeep, appDatabaseConf,
+                    appLogFile, appOuraToken, appShouldLogAll)
 import Model       (migrateAll)
 import Oura        (realClient)
 import Sync        (runSync, SyncResult (..))
@@ -67,6 +69,14 @@ dailySync settings appLog = do
 
             -- Individual failures are already logged by Sync.tryOura.
             $logInfo "daily sync done"
-            return $ if M.null (syncErrors result)
+            -- Back up even after a failed sync: the point is the advice
+            -- history, which the sync does not touch.
+            backedUp <- forM (appBackupDir settings) $ \dir -> do
+                r <- tryAny $ backupDatabase pool dir
+                                (appBackupKeep settings) today
+                case r of
+                    Left e   -> False <$ $logError ("backup failed: " <> tshow e)
+                    Right () -> return True
+            return $ if M.null (syncErrors result) && fromMaybe True backedUp
                      then ExitSuccess
                      else ExitFailure 1
