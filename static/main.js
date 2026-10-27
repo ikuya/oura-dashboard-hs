@@ -25,6 +25,7 @@ const state = {
   rangeData: null,    // the loaded range's daily metrics, keyed by metric
   sleepPeriods: [],   // the loaded range, ascending by bedtime_start
   history: null,      // { metrics, sleepPeriods } reaching back past the range for the baselines
+  events: null,       // /api/events over the same span as `history`: { tags, workouts, sessions }
   sleepDay: null,     // selected night; null means "the latest one loaded"
   sleepPeriodId: null, // selected period within that night; null means the main sleep
   nextDay: { cause: "steps", outcome: "readiness" }, // Next-Day Effects selection
@@ -85,16 +86,18 @@ async function loadData() {
   setStatus("Loading...");
 
   try {
-    const [metricsRes, hrRes, sleepRes] = await Promise.all([
+    const [metricsRes, hrRes, sleepRes, eventsRes] = await Promise.all([
       apiFetch(`/api/metrics?start=${historyStart}&end=${end}`),
       apiFetch(`/api/heartrate?start=${hrStart}&end=${hrEnd}`),
       apiFetch(`/api/sleep_periods?start=${historyStart}&end=${end}`),
+      apiFetch(`/api/events?start=${historyStart}&end=${end}`),
     ]);
 
     if (!metricsRes.ok) throw new Error(`Metrics fetch failed: ${metricsRes.status}`);
     const metricsHistory = await metricsRes.json();
     const hrData = hrRes.ok ? await hrRes.json() : [];
     const sleepHistory = sleepRes.ok ? await sleepRes.json() : [];
+    const events = eventsRes.ok ? await eventsRes.json() : {};
     const inRange = (r) => r.day >= start;
     const data = Object.fromEntries(
       Object.entries(metricsHistory).map(([m, rows]) => [m, rows.filter(inRange)]));
@@ -103,6 +106,7 @@ async function loadData() {
     state.rangeData = data;
     state.history = { metrics: metricsHistory, sleepPeriods: sleepHistory };
     state.sleepPeriods = sleepHistory.filter(inRange);
+    state.events = events;
 
     renderAll(data, hrData, state);
     renderSleepStages();
@@ -167,7 +171,7 @@ document.getElementById("sync-btn").addEventListener("click", async () => {
 // --- CSV export ---
 document.getElementById("csv-btn").addEventListener("click", () => {
   if (!state.rangeData) return;
-  const rows = dailyCsvRows(state.rangeData, state.sleepPeriods);
+  const rows = dailyCsvRows(state.rangeData, state.sleepPeriods, state.events ?? {});
   downloadCsv(`oura-${state.rangeStart}_${state.rangeEnd}.csv`, rows);
 });
 

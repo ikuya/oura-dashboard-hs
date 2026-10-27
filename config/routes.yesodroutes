@@ -18,6 +18,7 @@
 /api/monthly          MonthlyR      GET
 /api/heartrate        HeartrateR    GET
 /api/sleep_periods    SleepPeriodsR GET
+/api/events           EventsR       GET
 
 -- Sync
 /api/sync/status SyncStatusR GET

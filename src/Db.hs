@@ -229,6 +229,68 @@ mainSleepPeriod rows =
 periodSeconds :: Text -> A.Value -> Int
 periodSeconds f r = fromMaybe 0 (jsonInt =<< jsonLookup f r)
 
+-- events ------------------------------------------------------------------
+
+-- | The day an event record is filed under: the day it starts on. Tags carry
+-- a start_day (and an optional end_day) rather than a day.
+eventDay :: EventKind -> A.Value -> Maybe DayText
+eventDay kind r = DayText <$> (jsonText =<< jsonLookup field r)
+  where
+    field = case kind of
+        Tags     -> "start_day"
+        Workouts -> "day"
+        Sessions -> "day"
+
+-- | Store the events of one kind fetched for a range, replacing what the range
+-- held before. A tag deleted in the Oura app is simply missing from the next
+-- fetch, so upserting alone would keep it forever. The fetch returns the
+-- events starting on the range's days, the same ones the delete covers.
+-- Skips records without an id or day; returns the number written.
+replaceEvents
+    :: (MonadIO m) => EventKind -> DateRange -> [A.Value] -> ReaderT SqlBackend m Int
+replaceEvents kind (DateRange start end) records = do
+    now <- nowIso
+    rawExecute
+        "DELETE FROM oura_events WHERE kind = ? AND day >= ? AND day <= ?"
+        [toPersistValue (eventKindName kind), toPersistValue start, toPersistValue end]
+    let valid = [ (ouraId, day, r)
+                | r <- records
+                , Just ouraId <- [jsonText =<< jsonLookup "id" r]
+                , Just day    <- [eventDay kind r] ]
+    forM_ valid $ \(ouraId, day, r) ->
+        rawExecute
+            "INSERT OR REPLACE INTO oura_events (kind, id, day, data_json, synced_at) VALUES (?, ?, ?, ?, ?)"
+            [ toPersistValue (eventKindName kind)
+            , toPersistValue ouraId
+            , toPersistValue day
+            , toPersistValue (decodeUtf8 (toStrict (A.encode r)))
+            , toPersistValue now
+            ]
+    return (length valid)
+
+-- | The fields left out of event reads: a session's 5-second heart rate, HRV
+-- and motion series, which nothing draws.
+eventSeriesFields :: [Text]
+eventSeriesFields = ["heart_rate", "heart_rate_variability", "motion_count"]
+
+-- | The events of one kind touching the range, in the order they started. A
+-- tag spanning several days counts from its start_day through its end_day,
+-- so one that began before the range still shows.
+getEvents
+    :: (MonadIO m) => EventKind -> DateRange -> ReaderT SqlBackend m [A.Value]
+getEvents kind (DateRange start end) = do
+    rows <- rawSql
+        "SELECT data_json FROM oura_events WHERE kind = ? AND day <= ? AND COALESCE(json_extract(data_json, '$.end_day'), day) >= ? ORDER BY day, COALESCE(json_extract(data_json, '$.start_time'), json_extract(data_json, '$.start_datetime'))"
+        [toPersistValue (eventKindName kind), toPersistValue end, toPersistValue start]
+    return [ A.Object (KM.filterWithKey (\k _ -> K.toText k `notElem` eventSeriesFields)
+                                        (parseDataJson dj))
+           | Single dj <- rows ]
+
+-- | Every kind of event touching the range, keyed by kind name.
+getAllEvents :: (MonadIO m) => DateRange -> ReaderT SqlBackend m (Map Text [A.Value])
+getAllEvents range = M.fromList <$>
+    forM allEventKinds (\k -> (,) (eventKindName k) <$> getEvents k range)
+
 -- monthly means -----------------------------------------------------------
 
 -- | The series of the long-term view that are one value per row of a daily
@@ -378,6 +440,9 @@ getSyncStatus = do
         cnt <- case metric of
             HeartrateSeries   -> countRaw "SELECT COUNT(*) FROM heartrate" []
             SleepPeriodSeries -> countRaw "SELECT COUNT(*) FROM sleep_periods" []
+            EventSeries kind ->
+                countRaw "SELECT COUNT(*) FROM oura_events WHERE kind = ?"
+                         [toPersistValue (eventKindName kind)]
             Daily daily ->
                 countRaw "SELECT COUNT(*) FROM daily_metrics WHERE metric = ?"
                          [toPersistValue (dailyMetricName daily)]

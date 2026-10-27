@@ -47,3 +47,15 @@ SleepPeriod sql=sleep_periods
     syncedAt     Text  sql=synced_at
     Primary ouraId
     deriving Show
+
+-- Tags, workouts and sessions (Metric.EventKind), keyed by the Oura document
+-- id within each kind. @day@ is the day the record starts on (a tag's
+-- start_day). New in the Haskell port; migrateAll creates it.
+OuraEvent sql=oura_events
+    kind      Text
+    ouraId    Text  sql=id
+    day       Text
+    dataJson  Text  sql=data_json
+    syncedAt  Text  sql=synced_at
+    Primary kind ouraId
+    deriving Show

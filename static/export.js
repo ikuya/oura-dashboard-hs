@@ -1,5 +1,6 @@
 import { mainPeriod } from "./helpers.js";
 import { READINESS_CONTRIBUTORS, SLEEP_CONTRIBUTORS } from "./charts/scores.js";
+import { tagLabelsByDay, workoutsByDay, activityLabel, eventMinutes } from "./charts/events.js";
 
 // One row per day of the selected range, built from what the dashboard already
 // loaded, so the file holds exactly the numbers the charts are drawing.
@@ -56,7 +57,16 @@ function csvField(v) {
   return /[",\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
 }
 
-export function dailyCsvRows(data, periods) {
+// What the user logged that day: tag labels, and each workout with its length.
+const EVENT_COLUMNS = [
+  ["tags", ({ tags }) => (tags ? [...tags].join("; ") : null)],
+  ["workouts", ({ workouts }) => (workouts ? workouts.map(activityLabel).join("; ") : null)],
+  ["workout_min", ({ workouts }) => (workouts ? workouts.reduce((t, w) => t + (eventMinutes(w) ?? 0), 0) : null)],
+];
+
+export function dailyCsvRows(data, periods, events = {}) {
+  const tagsByDay = tagLabelsByDay(events.tags ?? []);
+  const workoutDays = workoutsByDay(events.workouts ?? []);
   const byMetric = Object.fromEntries(
     Object.entries(data).map(([m, rows]) => [m, new Map(rows.map((r) => [r.day, r]))]));
   const periodsByDay = new Map();
@@ -66,7 +76,8 @@ export function dailyCsvRows(data, periods) {
     ...periodsByDay.keys(),
   ])].sort();
 
-  const header = ["day", ...DAILY_COLUMNS.map(([name]) => name), ...SLEEP_COLUMNS.map(([name]) => name)];
+  const header = ["day", ...DAILY_COLUMNS.map(([name]) => name), ...SLEEP_COLUMNS.map(([name]) => name),
+                  ...EVENT_COLUMNS.map(([name]) => name)];
   const rows = days.map((day) => {
     const all = periodsByDay.get(day) ?? [];
     const main = mainPeriod(all);
@@ -77,6 +88,7 @@ export function dailyCsvRows(data, periods) {
         return r ? value(r) : null;
       }),
       ...SLEEP_COLUMNS.map(([, value]) => value(all, main)),
+      ...EVENT_COLUMNS.map(([, value]) => value({ tags: tagsByDay.get(day), workouts: workoutDays.get(day) })),
     ];
   });
   return [header, ...rows];

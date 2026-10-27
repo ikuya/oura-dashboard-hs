@@ -1,4 +1,4 @@
-import { makeChart, TIME_SCALE, SERIES_BLUE, SERIES_ORANGE, SERIES_AQUA, lineDataset, addDaysStr, dayWithWeekday } from "./common.js";
+import { makeChart, TIME_SCALE, SERIES_BLUE, SERIES_ORANGE, SERIES_AQUA, lineDataset, rangeDays, dayWithWeekday } from "./common.js";
 import { averageDataset, averageLegend } from "./baseline.js";
 
 // --- Score contributors ---
@@ -53,12 +53,6 @@ function heatmapColor(value) {
   const shortfall = Math.min(Math.max((100 - value) / (100 - HEATMAP_FLOOR), 0), 1);
   const alpha = HEATMAP_MIN_ALPHA + (1 - HEATMAP_MIN_ALPHA) * shortfall;
   return `rgba(${HEATMAP_RGB.join(", ")}, ${alpha.toFixed(3)})`;
-}
-
-function rangeDays(start, end) {
-  const days = [];
-  for (let d = start; d <= end; d = addDaysStr(d, 1)) days.push(d);
-  return days;
 }
 
 // Rows are the contributors, columns every day of the range (blank where the

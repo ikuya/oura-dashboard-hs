@@ -324,7 +324,8 @@ spec = do
                     sort (KM.keys o) `shouldBe` sort
                         [ "sleep", "readiness", "activity", "stress", "spo2"
                         , "resilience", "cardiovascular_age", "vo2_max"
-                        , "temperature", "heartrate", "sleep_periods" ]
+                        , "temperature", "heartrate", "sleep_periods"
+                        , "tags", "workouts", "sessions" ]
                 _ -> expectationFailure "status is not an object"
 
         it "counts rows" $ do

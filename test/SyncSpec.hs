@@ -22,9 +22,10 @@ import Data.Time.Calendar (diffDays)
 import DateText
 import Metric
 import Model (migrateAll)
--- Db and Oura both name their sleep-period and heartrate reads the same way;
--- the Oura ones win here so the client stubs can be written as record updates.
-import Db hiding (getHeartrate, getSleepPeriods)
+-- Db and Oura both name their sleep-period, heartrate and event reads the same
+-- way; the Oura ones win here so the client stubs can be written as record
+-- updates.
+import Db hiding (getEvents, getHeartrate, getSleepPeriods)
 import qualified Db
 import Oura
 import Sync
@@ -55,6 +56,7 @@ stubClientWithSleep ref daily heartrate sleepPeriods = OuraClient
     , getVO2Max                 = rec "vo2_max" daily
     , getHeartrate              = rec "heartrate" heartrate
     , getSleepPeriods           = rec "sleep_periods" sleepPeriods
+    , getEvents                 = \kind -> rec (eventKindName kind) []
     }
   where
     rec metric records range = do
@@ -88,8 +90,25 @@ stubClientPure = OuraClient
     { getDailySleep = c, getDailyReadiness = c, getDailyActivity = c
     , getDailyStress = c, getDailySpo2 = c, getDailyResilience = c
     , getDailyCardiovascularAge = c, getVO2Max = c, getHeartrate = c
-    , getSleepPeriods = c }
+    , getSleepPeriods = c, getEvents = const c }
   where c _ = return []
+
+-- | A client returning fixed events of each kind and recording the calls.
+eventClient :: IORef [(Text, DateRange)] -> [(EventKind, [A.Value])] -> OuraClient
+eventClient ref events = stubClientPure
+    { getEvents = \kind range -> do
+        modifyIORef' ref (++ [(eventKindName kind, range)])
+        return (fromMaybe [] (lookup kind events)) }
+
+-- | A tag record as enhanced_tag returns it: dated by start_day.
+tagRec :: Text -> Text -> Maybe Text -> A.Value
+tagRec ouraId startDay endDay = obj
+    [ "id" .= ouraId
+    , "tag_type_code" .= ("tag_sleep_alcohol" :: Text)
+    , "start_day" .= startDay
+    , "end_day" .= endDay
+    , "start_time" .= (startDay <> "T21:00:00+09:00")
+    ]
 
 callsFor :: Text -> [(Text, DateRange)] -> [DateRange]
 callsFor metric calls = [ range | (m, range) <- calls, m == metric ]
@@ -348,6 +367,63 @@ spec = do
         it "backfills the whole window, like heartrate" $ do
             ranges <- runMem $ backfillRanges SleepPeriodSeries 7 "2024-01-10"
             ranges `shouldBe` [DateRange "2024-01-04" "2024-01-10"]
+
+    describe "sync_events" $ do
+        let syncTags ref tags = runSync "2024-01-31" (eventClient ref [(Tags, tags)])
+                                    Nothing Nothing (Just [EventSeries Tags]) 0
+            allTags = Db.getEvents Tags (DateRange defaultStart "2024-01-31")
+
+        it "fetches the whole history in one call and files tags by start_day" $ do
+            (calls, rows) <- runMem $ do
+                ref <- newIORef []
+                _ <- syncTags ref [tagRec "a" "2024-01-30" Nothing]
+                (,) <$> readIORef ref <*> Db.getEvents Tags (DateRange "2024-01-30" "2024-01-30")
+            callsFor "tags" calls `shouldBe` [DateRange defaultStart "2024-01-31"]
+            map (fieldOf "id") rows `shouldBe` [Just (A.String "a")]
+
+        it "drops an event deleted in the app when its day is fetched again" $ do
+            rows <- runMem $ do
+                ref <- newIORef []
+                _ <- syncTags ref [tagRec "a" "2024-01-30" Nothing, tagRec "b" "2024-01-30" Nothing]
+                _ <- syncTags ref [tagRec "a" "2024-01-30" Nothing]
+                allTags
+            map (fieldOf "id") rows `shouldBe` [Just (A.String "a")]
+
+        it "keeps events on days the fetch did not cover" $ do
+            rows <- runMem $ do
+                ref <- newIORef []
+                _ <- syncTags ref [tagRec "old" "2024-01-02" Nothing, tagRec "new" "2024-01-30" Nothing]
+                -- The second sync only refetches the last 7 days.
+                _ <- syncTags ref [tagRec "new" "2024-01-30" Nothing]
+                allTags
+            map (fieldOf "id") rows `shouldBe` map (Just . A.String) ["old", "new"]
+
+        it "reads a tag spanning into the range from before it" $ do
+            rows <- runMem $ do
+                ref <- newIORef []
+                _ <- syncTags ref [tagRec "a" "2024-01-20" (Just "2024-01-22")]
+                Db.getEvents Tags (DateRange "2024-01-22" "2024-01-31")
+            length rows `shouldBe` 1
+
+        it "reads sessions without their 5-second series" $ do
+            rows <- runMem $ do
+                ref <- newIORef []
+                _ <- runSync "2024-01-31"
+                    (eventClient ref [(Sessions, [obj
+                        [ "id" .= ("s" :: Text), "day" .= ("2024-01-30" :: Text)
+                        , "type" .= ("meditation" :: Text)
+                        , "heart_rate" .= obj ["interval" .= (5 :: Int), "items" .= [60 :: Int]] ]])])
+                    Nothing Nothing (Just [EventSeries Sessions]) 0
+                Db.getEvents Sessions (DateRange "2024-01-30" "2024-01-30")
+            map (fieldOf "type") rows `shouldBe` [Just (A.String "meditation")]
+            map (fieldOf "heart_rate") rows `shouldBe` [Nothing]
+
+        it "is part of a sync with no metric list" $ do
+            calls <- runMem $ do
+                ref <- newIORef []
+                _ <- runSync "2024-01-31" (eventClient ref []) Nothing Nothing Nothing 0
+                readIORef ref
+            map fst calls `shouldBe` ["tags", "workouts", "sessions"]
 
 -- helpers ----------------------------------------------------------------
 

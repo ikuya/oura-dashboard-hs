@@ -101,7 +101,8 @@ it off over plain HTTP, or the browser never sends the cookie back).
 Startup migrates the database, which on an older `oura.db` adds the
 `sleep_periods` table. It starts empty, so the sleep stage charts stay blank
 until the next sync backfills them (the full history is ~4,000 records and takes
-well under a minute).
+well under a minute). Likewise the `oura_events` table (tags, workouts and
+sessions logged in the Oura app) fills on the next sync.
 
 During development, `stack exec -- yesod devel` gives auto-reload.
 
@@ -249,7 +250,7 @@ stack test
 ## Project layout
 
 ```
-config/models.persistentmodels   Persistent models: the existing oura.db schema, plus sleep_periods
+config/models.persistentmodels   Persistent models: the existing oura.db schema, plus sleep_periods and oura_events
 config/routes.yesodroutes         Route definitions
 config/settings.yml               Settings (secrets sourced from .env)
 src/Db.hs                         SQLite query/upsert layer (ported from db.py)
@@ -263,7 +264,7 @@ src/Logging.hs                    Log destination setup (LOG_FILE, stdout fallba
 src/Foundation.hs                 App foundation, per-route auth, CSRF, session cookie
 src/LoginThrottle.hs              Per-IP brute-force protection for the login form
 src/Handler/Auth.hs               Login page (/login) and logout
-src/Handler/Api.hs                metrics/heartrate/sleep_periods/sync handlers
+src/Handler/Api.hs                metrics/heartrate/sleep_periods/events/sync handlers
 src/Handler/Advice.hs             Advice endpoints
 src/Handler/Home.hs               Serves static/index.html
 app/main.hs                       Web server entry point

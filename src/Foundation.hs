@@ -221,6 +221,7 @@ routeAccess route = case route of
     MonthlyR         -> Api
     HeartrateR       -> Api
     SleepPeriodsR    -> Api
+    EventsR          -> Api
     SyncStatusR      -> Api
     SyncR            -> Api
     AdviceEntryR _   -> Api

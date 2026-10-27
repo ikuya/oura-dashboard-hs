@@ -1,7 +1,8 @@
 // The dashboard's charts, one module per section under charts/: common.js
 // (Chart.js defaults and shared parts), baseline.js (the trailing averages),
-// cards.js, scores.js, sleep.js, vitals.js, correlation.js, stress.js and
-// activity.js. This module only draws them all for the selected range.
+// cards.js, scores.js, sleep.js, vitals.js, correlation.js, events.js,
+// stress.js and activity.js. This module only draws them all for the selected
+// range.
 import { SERIES_BLUE, SERIES_ORANGE, SERIES_AQUA } from "./charts/common.js";
 import { renderCards } from "./charts/cards.js";
 import { renderScores, renderSleepQuality, renderContributorHeatmap,
@@ -10,6 +11,7 @@ import { renderStageDurations, renderBedtimeWake } from "./charts/sleep.js";
 import { nightlyVitalsRows, renderNightlyVitals, renderSpo2, renderTemperature,
          renderHeartRate, renderResilience, renderCardioAge } from "./charts/vitals.js";
 import { renderBedtimeScore, renderWeekdayAverages, renderNextDay } from "./charts/correlation.js";
+import { renderEventTimeline, renderTagEffects } from "./charts/events.js";
 import { renderStressRecovery } from "./charts/stress.js";
 import { renderActivityBreakdown, renderSteps } from "./charts/activity.js";
 
@@ -41,6 +43,9 @@ export function renderAll(data, hrData, state) {
     { label: "Activity", records: activity, color: SERIES_ORANGE },
   ], state);
   renderNextDay({ metrics: history, periods: state.history?.sleepPeriods ?? periods }, state);
+  const events = state.events ?? {};
+  renderEventTimeline(events, state);
+  renderTagEffects(events, { metrics: history, periods: state.history?.sleepPeriods ?? periods }, state);
 
   renderStressRecovery(stress, past("stress"), state);
   renderActivityBreakdown(activity, past("activity"), state);

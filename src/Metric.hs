@@ -11,14 +11,18 @@
 -- by hand is in the type instead.
 module Metric
     ( DailyMetric (..)
+    , EventKind (..)
     , Metric (..)
     , dailyMetricName
+    , eventKindName
+    , allEventKinds
     , parseDailyMetric
     , metricName
     , allDailyMetrics
     , dashboardMetrics
     , syncTargets
     , syncStatusMetrics
+    , seriesMetrics
     ) where
 
 import ClassyPrelude
@@ -38,14 +42,24 @@ data DailyMetric
       -- ^ Reported by @get_sync_status@, but the sync never fetches it.
     deriving (Eq, Ord, Show, Enum, Bounded)
 
--- | A sync/report target: a daily metric, or one of the two series that live
--- in their own tables rather than one row per day. (The @Series@ suffix avoids
--- a clash with the persistent entities @Heartrate@ and @SleepPeriod@.)
+-- | The user's own records of a day: tags (alcohol, caffeine, ...), workouts
+-- and guided sessions. Any number per day, keyed by Oura document id, and all
+-- kept in @oura_events@.
+data EventKind
+    = Tags
+    | Workouts
+    | Sessions
+    deriving (Eq, Ord, Show, Enum, Bounded)
+
+-- | A sync/report target: a daily metric, or one of the series that live in
+-- their own tables rather than one row per day. (The @Series@ suffix avoids a
+-- clash with the persistent entities @Heartrate@ and @SleepPeriod@.)
 data Metric
     = Daily DailyMetric
     | HeartrateSeries
     | SleepPeriodSeries
       -- ^ Sleep period documents: several per day, keyed by Oura document id.
+    | EventSeries EventKind
     deriving (Eq, Ord, Show)
 
 -- | The name used in the DB @metric@ column, the JSON API and the Oura API.
@@ -61,10 +75,21 @@ dailyMetricName = \case
     Temperature       -> "temperature"
     VO2Max            -> "vo2_max"
 
+-- | The name used in the @oura_events.kind@ column and the JSON API.
+eventKindName :: EventKind -> Text
+eventKindName = \case
+    Tags     -> "tags"
+    Workouts -> "workouts"
+    Sessions -> "sessions"
+
+allEventKinds :: [EventKind]
+allEventKinds = [minBound .. maxBound]
+
 metricName :: Metric -> Text
 metricName (Daily m)         = dailyMetricName m
 metricName HeartrateSeries   = "heartrate"
 metricName SleepPeriodSeries = "sleep_periods"
+metricName (EventSeries k)   = eventKindName k
 
 parseDailyMetric :: Text -> Maybe DailyMetric
 parseDailyMetric name =
@@ -84,9 +109,13 @@ dashboardMetrics = filter (/= VO2Max) allDailyMetrics
 syncTargets :: [Metric]
 syncTargets =
     map Daily (filter (`notElem` [Temperature, VO2Max]) allDailyMetrics)
-        ++ [HeartrateSeries, SleepPeriodSeries]
+        ++ seriesMetrics
 
 -- | The metrics @get_sync_status@ reports on.
 syncStatusMetrics :: [Metric]
-syncStatusMetrics =
-    map Daily allDailyMetrics ++ [HeartrateSeries, SleepPeriodSeries]
+syncStatusMetrics = map Daily allDailyMetrics ++ seriesMetrics
+
+-- | Every target that is not a daily metric.
+seriesMetrics :: [Metric]
+seriesMetrics =
+    [HeartrateSeries, SleepPeriodSeries] ++ map EventSeries allEventKinds

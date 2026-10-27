@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase          #-}
 
 -- | Oura Ring API v2 client, ported from oura_client.py.
 --
@@ -22,9 +23,10 @@ import Control.Monad.Logger        (LogLevel (..))
 import Network.HTTP.Simple
 import Network.HTTP.Client         (responseTimeoutMicro)
 
-import DateText                    (DateRange (..), DayText (..))
+import DateText                    (DateRange (..), DayText (..), addDaysT)
 import Json                        (jsonArray, jsonText, jsonLookup)
 import Logging                     (AppLog (..))
+import Metric                      (EventKind (..))
 
 -- | Error raised by the Oura client. Mirrors oura_client.OuraAPIError:
 -- carries an optional HTTP status code and a message.
@@ -50,6 +52,8 @@ data OuraClient = OuraClient
     , getSleepPeriods           :: DateRange -> IO [Value]
       -- ^ Sleep period documents. Dated like the daily endpoints, but several
       -- records can share a @day@ (a long sleep plus naps).
+    , getEvents                 :: EventKind -> DateRange -> IO [Value]
+      -- ^ Tags, workouts or sessions starting on a day of the range.
     }
 
 baseUrl :: Text
@@ -71,12 +75,22 @@ realClient appLog token = OuraClient
     , getDailyCardiovascularAge = getDated "/v2/usercollection/daily_cardiovascular_age"
     , getVO2Max                 = getDated "/v2/usercollection/vO2_max"
     , getSleepPeriods           = getDated "/v2/usercollection/sleep"
+    , getEvents                 = \kind range -> getPaged (eventPath kind)
+        -- Unlike the daily endpoints these treat end_date as exclusive (a
+        -- one-day range returns nothing), so the day after is asked for.
+        [ ("start_date", unDayText (rangeStart range))
+        , ("end_date",   unDayText (addDaysT 1 (rangeEnd range))) ]
     , getHeartrate              = \range -> getPaged
         "/v2/usercollection/heartrate"
         [ ("start_datetime", dateToDatetime (rangeStart range) False)
         , ("end_datetime",   dateToDatetime (rangeEnd range) True) ]
     }
   where
+    eventPath = \case
+        Tags     -> "/v2/usercollection/enhanced_tag"
+        Workouts -> "/v2/usercollection/workout"
+        Sessions -> "/v2/usercollection/session"
+
     getDated path range = getPaged path
         [ ("start_date", unDayText (rangeStart range))
         , ("end_date",   unDayText (rangeEnd range)) ]

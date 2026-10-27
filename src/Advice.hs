@@ -45,13 +45,15 @@ import qualified Data.UUID.V4      as UUID
 import Control.Monad.Logger       (LogLevel (..))
 import Data.Time.Clock            (diffUTCTime)
 import Data.Time.Format.ISO8601   (iso8601ParseM)
-import Data.Time.LocalTime        (addLocalTime, zonedTimeToLocalTime)
+import Data.Time.LocalTime        (addLocalTime, zonedTimeToLocalTime,
+                                   zonedTimeToUTC)
 
 import DateText                   (DateRange (..), DayText (..), addDaysT)
 import Db
-import Json                       (jsonText, jsonLookup)
-import Metric                     (DailyMetric (..), dailyMetricName,
-                                   dashboardMetrics)
+import Json                       (jsonDouble, jsonText, jsonLookup)
+import Metric                     (DailyMetric (..), EventKind (..),
+                                   allEventKinds, dailyMetricName,
+                                   dashboardMetrics, eventKindName)
 import Logging                    (AppLog (..))
 
 -- | Job lifecycle states.
@@ -86,6 +88,7 @@ adviceSystemPrompt previous = intercalate "\n" $
     , "`sleep_periods` は各日の睡眠段階の実時間（秒）です。同じ日の本睡と仮眠を合算しています。"
     , "`bedtime_start`（就床）・`sleep_onset`（入眠）・`bedtime_end`（起床）はその日の本睡の時刻（記録地の時刻、HH:MM）です。`naps` は仮眠の回数、`nap_time_in_bed` はその合計時間（秒）です。"
     , "`average_hrv`（夜間平均HRV、ms）・`lowest_heart_rate`（最低心拍、bpm）・`average_heart_rate`（平均心拍、bpm）・`average_breath`（平均呼吸数、回/分）もその日の本睡の値です。"
+    , "`tags` はユーザーが Oura アプリで付けたタグ（`tag` は種類のコードまたは自由入力名、例: `tag_sleep_alcohol` は飲酒）、`workouts` はワークアウト（`minutes` は時間、`start` は開始時刻）、`sessions` は瞑想・休息などのセッションです。日付 D のタグやワークアウトはその夜の睡眠（D+1 の `sleep_periods`・`sleep`）と翌朝の準備度（D+1 の `readiness`）に影響しうるので、該当があれば関連を具体的に指摘してください。"
     ]
     ++ whenPrevious
     [ "データの後の `<previous_advice>` には前回のアドバイスが入っています。前回の保存日より後の日を中心に、前回指摘した点や提案がその後どうなったかをデータから評価してください。改善が見られない提案は同じ文言で繰り返さず、別の切り口を示してください。" ]
@@ -218,6 +221,39 @@ clockAt offset ts =
          . addLocalTime (fromIntegral offset) . zonedTimeToLocalTime
         <$> iso8601ParseM (unpack ts)
 
+-- | The fields of a tag, workout or session the prompt needs. Clock times are
+-- local "HH:MM" like the sleep times, and a duration is in whole minutes.
+eventSummary :: EventKind -> A.Value -> A.Value
+eventSummary kind r = A.object $ case kind of
+    Tags ->
+        [ "day"     A..= g "start_day"
+        , "end_day" A..= g "end_day"
+        , "tag"     A..= (jsonLookup "custom_name" r <|> jsonLookup "tag_type_code" r)
+        , "time"    A..= (clockAt 0 =<< str "start_time")
+        , "comment" A..= g "comment" ]
+    Workouts ->
+        [ "day"       A..= g "day"
+        , "activity"  A..= g "activity"
+        , "intensity" A..= g "intensity"
+        , "start"     A..= (clockAt 0 =<< str "start_datetime")
+        , "minutes"   A..= minutes
+        , "calories"  A..= (round <$> (jsonDouble =<< jsonLookup "calories" r) :: Maybe Int) ]
+    Sessions ->
+        [ "day"     A..= g "day"
+        , "type"    A..= g "type"
+        , "start"   A..= (clockAt 0 =<< str "start_datetime")
+        , "minutes" A..= minutes
+        , "mood"    A..= g "mood" ]
+  where
+    g k = fromMaybe A.Null (jsonLookup k r)
+    str k = jsonText =<< jsonLookup k r
+    instant t = zonedTimeToUTC <$> iso8601ParseM (unpack t)
+    minutes :: Maybe Int
+    minutes = do
+        from <- instant =<< str "start_datetime"
+        to   <- instant =<< str "end_datetime"
+        return (round (diffUTCTime to from / 60))
+
 -- | How many days an advice analyses.
 adviceDays :: Int
 adviceDays = 14
@@ -234,16 +270,18 @@ buildHealthPayload today = do
     let range@(DateRange start _) = advicePeriod today
     bulk <- getDailyMetricsBulk dashboardMetrics range
     sleepPeriods <- getSleepPeriods range
+    events <- forM allEventKinds $ \k ->
+        (K.fromText (eventKindName k) A..=) . map (eventSummary k) <$> getEvents k range
     let metricsObj = KM.fromList
             [ ( K.fromText (dailyMetricName m)
               , A.toJSON (map (extractKeyFields m) (M.findWithDefault [] m bulk)) )
             | m <- dashboardMetrics ]
         period = A.object ["start" A..= start, "end" A..= today, "days" A..= adviceDays]
-    return $ A.object
+    return $ A.object $
         [ "period"        A..= period
         , "metrics"       A..= A.Object metricsObj
         , "sleep_periods" A..= sleepStageTotals sleepPeriods
-        ]
+        ] ++ events
 
 -- | Build the prompt string: the system prompt, the JSON code block, and the
 -- previous advice (if any) for the report to follow on from.

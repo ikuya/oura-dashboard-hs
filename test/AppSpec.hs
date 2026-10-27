@@ -11,6 +11,9 @@ import Data.Aeson ((.=))
 import qualified Data.Map.Strict as M
 import Database.Persist.Sql (rawExecute, toPersistValue)
 import Advice (AdviceJob (..), JobStatus (..))
+import DateText (DateRange (..))
+import qualified Db
+import Metric (EventKind (..))
 
 -- | A stub Oura client returning fixed sleep records; used by the sync test.
 syncStubClient :: OuraClient
@@ -19,7 +22,7 @@ syncStubClient = OuraClient
         [ A.object ["day" .= ("2024-01-10" :: Text), "score" .= (80 :: Int)] ]
     , getDailyReadiness = e, getDailyActivity = e, getDailyStress = e
     , getDailySpo2 = e, getDailyResilience = e, getDailyCardiovascularAge = e
-    , getVO2Max = e, getHeartrate = e, getSleepPeriods = e }
+    , getVO2Max = e, getHeartrate = e, getSleepPeriods = e, getEvents = const e }
   where e _ = return []
 
 spec :: Spec
@@ -177,6 +180,23 @@ spec = do
 
         it "requires auth" $ do
             get SleepPeriodsR
+            statusIs 401
+
+    describe "events" $ withApp $ do
+        it "returns each kind touching the range" $ do
+            login
+            runDB $ void $ Db.replaceEvents Tags (DateRange "2024-01-01" "2024-01-31")
+                [ A.object [ "id" .= ("t" :: Text), "start_day" .= ("2024-01-10" :: Text)
+                           , "tag_type_code" .= ("tag_sleep_alcohol" :: Text) ] ]
+            request $ setMethod "GET" >> setUrl EventsR
+                >> addGetParam "start" "2024-01-01" >> addGetParam "end" "2024-01-31"
+            statusIs 200
+            bodyContains "\"tag_type_code\":\"tag_sleep_alcohol\""
+            bodyContains "\"workouts\":[]"
+            bodyContains "\"sessions\":[]"
+
+        it "requires auth" $ do
+            get EventsR
             statusIs 401
 
     describe "sync status" $ withApp $ do

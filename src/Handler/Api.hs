@@ -17,7 +17,7 @@ import Network.HTTP.Types (status202, status400, status500)
 import DateText (DateRange (..), DayText, addDaysT, parseDayText, todayUtc)
 import Json (jsonArray, jsonText, jsonLookup)
 import Metric (Metric (..), dailyMetricName, dashboardMetrics,
-               metricName, parseDailyMetric)
+               metricName, parseDailyMetric, seriesMetrics)
 import qualified Db
 import qualified Sync
 import Oura (realClient)
@@ -96,6 +96,16 @@ getSleepPeriodsR = do
     rows <- runDB $ Db.getSleepPeriods range
     returnJson rows
 
+-- Events -----------------------------------------------------------------
+
+-- | The tags, workouts and sessions touching the range, keyed by kind
+-- (@tags@, @workouts@, @sessions@), each in the order they started.
+getEventsR :: Handler Value
+getEventsR = do
+    range <- parseRange
+    events <- runDB $ Db.getAllEvents range
+    returnJson events
+
 -- Sync -------------------------------------------------------------------
 
 getSyncStatusR :: Handler Value
@@ -132,12 +142,12 @@ syncResultToJson r = A.object
     , "errors" A..= M.mapKeys metricName (Sync.syncErrors r)
     ]
 
--- | A metric name from the request body. The two series are sync targets but
--- not daily metrics, so they are matched by name before falling back.
+-- | A metric name from the request body. The series are sync targets but not
+-- daily metrics, so they are matched by name before falling back.
 parseMetricName :: Value -> Maybe Metric
 parseMetricName v = do
     name <- jsonText v
-    let series = [ (metricName m, m) | m <- [HeartrateSeries, SleepPeriodSeries] ]
+    let series = [ (metricName m, m) | m <- seriesMetrics ]
     lookup name series <|> (Daily <$> parseDailyMetric name)
 
 -- | The request body decoded as JSON, or an empty object when it is missing,

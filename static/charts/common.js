@@ -155,6 +155,13 @@ export function addDaysStr(day, n) {
   return d.toISOString().slice(0, 10);
 }
 
+// Every day from `start` through `end`, inclusive.
+export function rangeDays(start, end) {
+  const days = [];
+  for (let d = start; d <= end; d = addDaysStr(d, 1)) days.push(d);
+  return days;
+}
+
 export function valuesByDay(records, value) {
   return new Map(records.flatMap((r) => {
     const v = value(r);

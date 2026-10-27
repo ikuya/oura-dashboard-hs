@@ -96,7 +96,8 @@ http://localhost:3000 を開きます（ポートは `YESOD_PORT` で変更可�
 
 起動時に DB のマイグレーションが走り、以前からの `oura.db` には `sleep_periods`
 テーブルが追加されます。中身は空なので、次の同期でバックフィルされるまで睡眠段階の
-チャートは空のままです（全履歴で約4,000レコード、1分かかりません）。
+チャートは空のままです（全履歴で約4,000レコード、1分かかりません）。Oura アプリで
+記録したタグ・ワークアウト・セッションを入れる `oura_events` テーブルも同様に、次の同期で埋まります。
 
 開発時は `stack exec -- yesod devel` で自動リロードが有効になります。
 
@@ -242,7 +243,7 @@ stack test
 ## ディレクトリ構成
 
 ```
-config/models.persistentmodels   Persistent モデル。既存 oura.db スキーマ + sleep_periods
+config/models.persistentmodels   Persistent モデル。既存 oura.db スキーマ + sleep_periods / oura_events
 config/routes.yesodroutes         ルート定義
 config/settings.yml               設定（シークレットは .env から取得）
 src/Db.hs                         SQLite のクエリ/upsert 層 (db.py の移植)
@@ -256,7 +257,7 @@ src/Logging.hs                    ログ出力先の設定 (LOG_FILE、stdout �
 src/Foundation.hs                 アプリ基盤、ルート単位の認可、CSRF、セッション Cookie
 src/LoginThrottle.hs              ログインフォームの IP 単位ブルートフォース対策
 src/Handler/Auth.hs               ログイン画面 (/login) とログアウト
-src/Handler/Api.hs                metrics/heartrate/sleep_periods/sync ハンドラ
+src/Handler/Api.hs                metrics/heartrate/sleep_periods/events/sync ハンドラ
 src/Handler/Advice.hs             アドバイス用エンドポイント
 src/Handler/Home.hs               static/index.html の配信
 app/main.hs                       Web サーバのエントリポイント

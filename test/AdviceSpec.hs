@@ -15,8 +15,8 @@ import qualified Data.Aeson.KeyMap as KM
 
 import Advice (adviceComparison, buildAdvicePrompt, buildHealthPayload)
 import DateText (DateRange (..))
-import Db (SavedAdvice (..), upsertDailyMetric, upsertSleepPeriods)
-import Metric (DailyMetric (..))
+import Db (SavedAdvice (..), replaceEvents, upsertDailyMetric, upsertSleepPeriods)
+import Metric (DailyMetric (..), EventKind (..))
 import Model (migrateAll)
 
 -- | A fresh in-memory database per call. Signature left to inference to avoid
@@ -130,6 +130,31 @@ spec = do
                     [ periodOfType "rest" "a" "2024-01-10" 3000 14000 7000 3600 ]
                 buildHealthPayload "2024-01-10"
             field "sleep_periods" payload `shouldBe` Just (A.Array mempty)
+
+    describe "build_health_payload events" $ do
+        it "summarises the tags and workouts of the period" $ do
+            payload <- runMem $ do
+                _ <- replaceEvents Tags (DateRange "2024-01-01" "2024-01-10")
+                    [ A.object [ "id" A..= ("t" :: Text), "start_day" A..= ("2024-01-09" :: Text)
+                               , "tag_type_code" A..= ("tag_sleep_alcohol" :: Text)
+                               , "start_time" A..= ("2024-01-09T21:00:09+09:00" :: Text) ] ]
+                _ <- replaceEvents Workouts (DateRange "2024-01-01" "2024-01-10")
+                    [ A.object [ "id" A..= ("w" :: Text), "day" A..= ("2024-01-09" :: Text)
+                               , "activity" A..= ("walking" :: Text), "calories" A..= (64.4 :: Double)
+                               , "start_datetime" A..= ("2024-01-09T21:18:00.000+09:00" :: Text)
+                               , "end_datetime" A..= ("2024-01-09T21:58:00.000+09:00" :: Text) ] ]
+                buildHealthPayload "2024-01-10"
+            let only k = case field k payload of
+                    Just (A.Array v) | [x] <- toList v -> return x
+                    _ -> expectationFailure (unpack k <> " is not a one-element array") >> return A.Null
+            tag <- only "tags"
+            field "tag" tag `shouldBe` Just (A.String "tag_sleep_alcohol")
+            field "time" tag `shouldBe` Just (A.String "21:00")
+            workout <- only "workouts"
+            field "minutes" workout `shouldBe` Just (A.Number 40)
+            field "calories" workout `shouldBe` Just (A.Number 64)
+            field "start" workout `shouldBe` Just (A.String "21:18")
+            field "sessions" payload `shouldBe` Just (A.Array mempty)
 
     describe "build_health_payload sleep times" $ do
         let timed sleepType ouraId start end tib latency = A.object

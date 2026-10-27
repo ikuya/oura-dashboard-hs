@@ -19,6 +19,7 @@ module Sync
     , findMissingRange
     , syncDailyMetric
     , syncSleepPeriods
+    , syncEvents
     , backfillRanges
     , runSync
     , SyncResult (..)
@@ -39,7 +40,7 @@ import DateText                   (DateRange (..), DayText (..), addDaysT,
 import Db
 import Json                       (jsonDouble, jsonInt, jsonLookup, jsonText)
 import Metric
-import Oura hiding (getHeartrate, getSleepPeriods)
+import Oura hiding (getEvents, getHeartrate, getSleepPeriods)
 import qualified Oura
 
 defaultStart :: DayText
@@ -166,10 +167,25 @@ syncSleepPeriods client range@(DateRange start end) = do
         <> ": " <> tshow count <> " rows")
     return count
 
+-- events -----------------------------------------------------------------
+
+-- | Fetch the tags, workouts or sessions starting in the range and replace
+-- the stored ones there, so events deleted in the Oura app go away too.
+syncEvents
+    :: (MonadIO m, MonadLogger m)
+    => OuraClient -> EventKind -> DateRange
+    -> ReaderT SqlBackend m Int
+syncEvents client kind range@(DateRange start end) = do
+    records <- liftIO $ Oura.getEvents client kind range
+    count <- replaceEvents kind range records
+    $logInfo ("sync " <> eventKindName kind <> " " <> unDayText start
+        <> ".." <> unDayText end <> ": " <> tshow count <> " rows")
+    return count
+
 -- _backfill_ranges -------------------------------------------------------
 
 -- | Contiguous date ranges needed to fill gaps in the backfill window.
--- The two series always return the whole window. Daily metrics treat days with
+-- The series always return the whole window. Daily metrics treat days with
 -- a null score (or missing rows, or today) as gaps.
 backfillRanges
     :: (MonadIO m)
@@ -178,10 +194,12 @@ backfillRanges
 backfillRanges metric backfillDays today = do
     let windowStart = addDaysT (negate (fromIntegral backfillDays - 1)) today
     case metric of
-        -- Neither series has a per-day "is this day filled in?" notion in the
-        -- way daily_metrics does, so both just re-fetch the whole window.
+        -- No series has a per-day "is this day filled in?" notion in the way
+        -- daily_metrics does (most days hold no tag or workout at all), so
+        -- they all just re-fetch the whole window.
         HeartrateSeries   -> return [DateRange windowStart today]
         SleepPeriodSeries -> return [DateRange windowStart today]
+        EventSeries _     -> return [DateRange windowStart today]
         Daily daily -> do
             rows <- rawSql
                 "SELECT day FROM daily_metrics WHERE metric = ? AND day >= ? AND day <= ? AND score IS NOT NULL"
@@ -283,6 +301,7 @@ runSync today client requestedStart requestedEnd mmetrics backfillDays = do
     syncRange = \case
         HeartrateSeries   -> syncHeartrateRange
         SleepPeriodSeries -> syncSleepPeriodRange
+        EventSeries kind  -> syncEventRange kind
         Daily daily       -> syncDailyRange daily
 
     syncDailyRange metric range =
@@ -297,6 +316,13 @@ runSync today client requestedStart requestedEnd mmetrics backfillDays = do
         rangeResult <$> tryOura SleepPeriodSeries (do
             rows <- syncSleepPeriods client range
             updateSyncLog SleepPeriodSeries (rangeEnd range)
+            return rows)
+
+    -- Like sleep periods, one paginated fetch covers any range.
+    syncEventRange kind range =
+        rangeResult <$> tryOura (EventSeries kind) (do
+            rows <- syncEvents client kind range
+            updateSyncLog (EventSeries kind) (rangeEnd range)
             return rows)
 
     -- Heartrate: each fetch range is walked backwards in <=30-day windows.
