@@ -118,12 +118,38 @@ function withNarrowPoints(config) {
   return { ...config, data: { ...config.data, datasets } };
 }
 
+// The tooltip is drawn on the canvas, so a tap on it would otherwise just pick
+// the nearest point again; on a phone that left only the thin strip between
+// the plot and the card edge to dismiss it. A tap inside the tooltip closes it
+// instead. The touchstart is swallowed too, so the tooltip doesn't jump to
+// another point before the click that follows the tap arrives.
+function insideTooltip(chart, e) {
+  const t = chart.tooltip;
+  return t?.getActiveElements().length > 0 && t.opacity > 0
+    && e.x >= t.x && e.x <= t.x + t.width && e.y >= t.y && e.y <= t.y + t.height;
+}
+
+const dismissTooltipOnTap = {
+  id: "dismissTooltipOnTap",
+  beforeEvent(chart, args) {
+    const e = args.event;
+    if ((e.type !== "touchstart" && e.type !== "click") || !insideTooltip(chart, e)) return;
+    if (e.type === "click") {
+      chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+      chart.setActiveElements([]);
+      chart.update();
+    }
+    return false;
+  },
+};
+
 export function makeChart(id, charts, config) {
   if (charts[id]) {
     charts[id].destroy();
   }
   const ctx = document.getElementById(id).getContext("2d");
-  charts[id] = new Chart(ctx, withHtmlLegend(withNarrowPoints(withDayTooltipTitle(config))));
+  const wrapped = withHtmlLegend(withNarrowPoints(withDayTooltipTitle(config)));
+  charts[id] = new Chart(ctx, { ...wrapped, plugins: [...wrapped.plugins, dismissTooltipOnTap] });
   return charts[id];
 }
 
