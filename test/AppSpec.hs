@@ -307,6 +307,33 @@ spec = do
             bodyContains "\"saved_at\":\"2024-01-08T10:00:00+00:00\""
             bodyContains "{\"average\":75,\"metric\":\"sleep\",\"previous\":70}"
 
+        it "history entry defaults to the day's latest advice" $ do
+            login
+            insertAdvice "2024-01-14T10:00:00+00:00" "2024-01-01" "2024-01-14" "朝のアドバイス"
+            insertAdvice "2024-01-14T12:00:00+00:00" "2024-01-01" "2024-01-14" "昼のアドバイス"
+            get (AdviceEntryR "2024-01-14")
+            statusIs 200
+            bodyContains "昼のアドバイス"
+            bodyContains "\"saved_ats\":[\"2024-01-14T10:00:00+00:00\",\"2024-01-14T12:00:00+00:00\"]"
+
+        it "history entry picks an earlier advice of the day by saved_at" $ do
+            login
+            insertAdvice "2024-01-14T10:00:00+00:00" "2024-01-01" "2024-01-14" "朝のアドバイス"
+            insertAdvice "2024-01-14T12:00:00+00:00" "2024-01-01" "2024-01-14" "昼のアドバイス"
+            request $ do
+                setUrl (AdviceEntryR "2024-01-14")
+                addGetParam "at" "2024-01-14T10:00:00+00:00"
+            statusIs 200
+            bodyContains "朝のアドバイス"
+
+        it "history entry with an unknown saved_at returns 404" $ do
+            login
+            insertAdvice "2024-01-14T10:00:00+00:00" "2024-01-01" "2024-01-14" "朝のアドバイス"
+            request $ do
+                setUrl (AdviceEntryR "2024-01-14")
+                addGetParam "at" "2024-01-15T10:00:00+00:00"
+            statusIs 404
+
         it "history entry invalid date returns 400" $ do
             login
             get (AdviceEntryR "not-a-date")

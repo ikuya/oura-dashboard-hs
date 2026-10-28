@@ -497,6 +497,7 @@ function renderAdviceComparison(el, comparison) {
   const contentEl = document.getElementById("advice-content");
   const periodEl = document.getElementById("advice-period");
   const comparisonEl = document.getElementById("advice-comparison");
+  const versionsEl = document.getElementById("advice-versions");
   const confirmOverlay = document.getElementById("confirm-overlay");
   const confirmOkBtn = document.getElementById("confirm-ok-btn");
   const confirmCancelBtn = document.getElementById("confirm-cancel-btn");
@@ -572,6 +573,7 @@ function renderAdviceComparison(el, comparison) {
     adviceBtn.disabled = true;
     adviceBtn.textContent = "分析中...";
     periodEl.textContent = "";
+    versionsEl.replaceChildren();
     comparisonEl.replaceChildren();
     copyBtn.disabled = true;
     copyBtn.textContent = "コピー";
@@ -627,6 +629,7 @@ function renderAdviceComparison(el, comparison) {
   const contentEl  = document.getElementById("advice-content");
   const periodEl   = document.getElementById("advice-period");
   const comparisonEl = document.getElementById("advice-comparison");
+  const versionsEl = document.getElementById("advice-versions");
   const copyBtn    = document.getElementById("advice-copy-btn");
 
   function openModal() { overlay.classList.remove("hidden"); }
@@ -679,11 +682,36 @@ function renderAdviceComparison(el, comparison) {
     grid.innerHTML = html;
   }
 
-  async function openSavedAdvice(isoDate) {
+  // A saved_at like 2024-01-14T05:05:00.123456+00:00 in local time: "14:05",
+  // or "2024/01/14 14:05" with the date. Date can't parse microseconds.
+  function savedStamp(savedAt, withDate) {
+    const d = new Date(savedAt.replace(/(\.\d{3})\d+/, "$1"));
+    if (isNaN(d)) return savedAt;
+    const opts = { hour: "2-digit", minute: "2-digit" };
+    if (withDate) Object.assign(opts, { year: "numeric", month: "2-digit", day: "2-digit" });
+    return d.toLocaleString("ja-JP", opts);
+  }
+
+  // A button per advice saved that day, so an earlier one is not hidden by a
+  // later run; nothing when there is only one.
+  function renderVersions(isoDate, savedAts, current) {
+    versionsEl.replaceChildren();
+    if (!savedAts || savedAts.length < 2) return;
+    for (const at of savedAts) {
+      const btn = document.createElement("button");
+      btn.className = "advice-version-btn" + (at === current ? " active" : "");
+      btn.textContent = savedStamp(at, false);
+      btn.addEventListener("click", () => { if (at !== current) openSavedAdvice(isoDate, at); });
+      versionsEl.appendChild(btn);
+    }
+  }
+
+  async function openSavedAdvice(isoDate, savedAt) {
     sharedAdviceRaw = "";
     copyBtn.disabled = true;
     copyBtn.textContent = "コピー";
     periodEl.textContent = "";
+    if (!savedAt) versionsEl.replaceChildren();
     comparisonEl.replaceChildren();
     contentEl.innerHTML = `
       <div class="advice-loading">
@@ -693,15 +721,17 @@ function renderAdviceComparison(el, comparison) {
     openModal();
 
     try {
-      const res  = await apiFetch(`/api/advice/history/${isoDate}`);
+      const query = savedAt ? `?at=${encodeURIComponent(savedAt)}` : "";
+      const res  = await apiFetch(`/api/advice/history/${isoDate}${query}`);
       const data = await res.json();
       if (!res.ok) {
         contentEl.innerHTML = `<p style="color:var(--red)">エラー: ${data.error || res.status}</p>`;
         return;
       }
       if (data.period) {
-        periodEl.textContent = `分析期間: ${data.period.start} 〜 ${data.period.end}　（保存日: ${isoDate}）`;
+        periodEl.textContent = `分析期間: ${data.period.start} 〜 ${data.period.end}　（保存: ${savedStamp(data.saved_at, true)}）`;
       }
+      renderVersions(isoDate, data.saved_ats, data.saved_at);
       renderAdviceComparison(comparisonEl, data.comparison);
       sharedAdviceRaw = data.advice || "";
       contentEl.innerHTML = marked.parse(sharedAdviceRaw);

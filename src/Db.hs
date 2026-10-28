@@ -406,14 +406,14 @@ savedAdviceRow
 savedAdviceRow (Single at, Single ps, Single pe, Single content) =
     SavedAdvice at (DateRange ps pe) content
 
--- get_advice_for_date: the last advice saved on a (UTC) day.
+-- | Every advice saved on a (UTC) day, oldest first; pressing Advice again the
+-- same day adds an entry rather than replacing the earlier one.
 getAdviceForDate
-    :: (MonadIO m) => DayText -> ReaderT SqlBackend m (Maybe SavedAdvice)
-getAdviceForDate day = do
-    rows <- rawSql
-        "SELECT saved_at, period_start, period_end, content FROM advice_history WHERE substr(saved_at, 1, 10) = ? ORDER BY saved_at DESC LIMIT 1"
+    :: (MonadIO m) => DayText -> ReaderT SqlBackend m [SavedAdvice]
+getAdviceForDate day =
+    map savedAdviceRow <$> rawSql
+        "SELECT saved_at, period_start, period_end, content FROM advice_history WHERE substr(saved_at, 1, 10) = ? ORDER BY saved_at"
         [toPersistValue day]
-    return $ savedAdviceRow <$> headMay rows
 
 -- | The mean score of each metric over a range, skipping days without one.
 -- A metric with no scored day in the range is absent from the map.

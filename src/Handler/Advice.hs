@@ -79,15 +79,18 @@ adviceHistoryList = do
     dates <- runDB Db.getAdviceDates
     returnJson dates
 
--- GET /api/advice/history/<date>
+-- GET /api/advice/history/<date>[?at=<saved_at>] — the entry saved at @at@,
+-- or the day's latest; @saved_ats@ lists every entry of the day to pick from.
 getAdviceEntryR :: Text -> Handler Value
 getAdviceEntryR raw = do
     day <- maybe (sendStatusJSON status400
                     (A.object ["error" A..= ("Invalid date format" :: Text)]))
                  return
                  (parseDayText raw)
-    mentry <- runDB $ Db.getAdviceForDate day
-    case mentry of
+    entries <- runDB $ Db.getAdviceForDate day
+    mat <- lookupGetParam "at"
+    let pick = maybe lastMay (\at -> find ((== at) . Db.savedAdviceAt)) mat
+    case pick entries of
         Nothing -> sendStatusJSON status404
             (A.object ["error" A..= ("No advice for this date" :: Text)])
         Just entry -> do
@@ -98,6 +101,7 @@ getAdviceEntryR raw = do
                 [ "advice"     A..= Db.savedAdviceContent entry
                 , "period"     A..= A.object ["start" A..= start, "end" A..= end]
                 , "saved_at"   A..= Db.savedAdviceAt entry
+                , "saved_ats"  A..= map Db.savedAdviceAt entries
                 , "comparison" A..= comparison
                 ]
 

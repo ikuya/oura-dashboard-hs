@@ -435,6 +435,27 @@ footer table td { padding: 2px 12px 2px 0; }
   flex-shrink: 0;
 }
 
+/* One button per advice saved on the same day */
+.advice-versions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 20px 0;
+  flex-shrink: 0;
+}
+.advice-versions:empty { display: none; }
+.advice-version-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.advice-version-btn:hover { border-color: var(--accent); color: var(--accent); }
+.advice-version-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
 .advice-comparison {
   display: flex;
   flex-wrap: wrap;

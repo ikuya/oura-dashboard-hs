@@ -153,14 +153,22 @@ spec = do
                 case dates of
                     (d : _) -> case field "day" d of
                         Just (A.String day) -> getAdviceForDate (DayText day)
-                        _ -> return Nothing
-                    _ -> return Nothing
-            savedAdviceContent <$> entry `shouldBe` Just "健康状態は良好です。"
-            savedAdvicePeriod <$> entry `shouldBe` Just (DateRange "2024-01-01" "2024-01-14")
+                        _ -> return []
+                    _ -> return []
+            map savedAdviceContent entry `shouldBe` ["健康状態は良好です。"]
+            map savedAdvicePeriod entry `shouldBe` [DateRange "2024-01-01" "2024-01-14"]
 
-        it "returns Nothing when missing" $ do
+        it "returns nothing when missing" $ do
             entry <- runMem $ getAdviceForDate "2024-01-01"
-            entry `shouldBe` Nothing
+            entry `shouldBe` []
+
+        it "keeps every advice saved on a day, oldest first" $ do
+            entries <- runMem $ do
+                insertAdviceRaw "2024-01-14T12:00:00+00:00" "2024-01-01" "2024-01-14" "advice B"
+                insertAdviceRaw "2024-01-14T10:00:00+00:00" "2024-01-01" "2024-01-14" "advice A"
+                insertAdviceRaw "2024-01-15T10:00:00+00:00" "2024-01-02" "2024-01-15" "advice C"
+                getAdviceForDate "2024-01-14"
+            map savedAdviceContent entries `shouldBe` ["advice A", "advice B"]
 
         it "groups dates by day" $ do
             dates <- runMem $ do
