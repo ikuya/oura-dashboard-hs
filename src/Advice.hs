@@ -42,6 +42,7 @@ import System.Process             (readCreateProcessWithExitCode, proc)
 import System.Timeout             (timeout)
 import qualified Data.UUID         as UUID
 import qualified Data.UUID.V4      as UUID
+import Control.Monad              (mfilter)
 import Control.Monad.Logger       (LogLevel (..))
 import Data.Time.Clock            (diffUTCTime)
 import Data.Time.Format.ISO8601   (iso8601ParseM)
@@ -228,9 +229,9 @@ eventSummary kind r = A.object $ case kind of
     Tags ->
         [ "day"     A..= g "start_day"
         , "end_day" A..= g "end_day"
-        , "tag"     A..= (jsonLookup "custom_name" r <|> jsonLookup "tag_type_code" r)
+        , "tag"     A..= (nonBlank "custom_name" <|> nonBlank "tag_type_code")
         , "time"    A..= (clockAt 0 =<< str "start_time")
-        , "comment" A..= g "comment" ]
+        , "comment" A..= nonBlank "comment" ]
     Workouts ->
         [ "day"       A..= g "day"
         , "activity"  A..= g "activity"
@@ -247,6 +248,8 @@ eventSummary kind r = A.object $ case kind of
   where
     g k = fromMaybe A.Null (jsonLookup k r)
     str k = jsonText =<< jsonLookup k r
+    -- Oura sends an unset custom name as null and an unset comment as "".
+    nonBlank k = mfilter (not . null) (str k)
     instant t = zonedTimeToUTC <$> iso8601ParseM (unpack t)
     minutes :: Maybe Int
     minutes = do

@@ -137,6 +137,7 @@ spec = do
                 _ <- replaceEvents Tags (DateRange "2024-01-01" "2024-01-10")
                     [ A.object [ "id" A..= ("t" :: Text), "start_day" A..= ("2024-01-09" :: Text)
                                , "tag_type_code" A..= ("tag_sleep_alcohol" :: Text)
+                               , "custom_name" A..= A.Null, "comment" A..= ("" :: Text)
                                , "start_time" A..= ("2024-01-09T21:00:09+09:00" :: Text) ] ]
                 _ <- replaceEvents Workouts (DateRange "2024-01-01" "2024-01-10")
                     [ A.object [ "id" A..= ("w" :: Text), "day" A..= ("2024-01-09" :: Text)
@@ -150,6 +151,7 @@ spec = do
             tag <- only "tags"
             field "tag" tag `shouldBe` Just (A.String "tag_sleep_alcohol")
             field "time" tag `shouldBe` Just (A.String "21:00")
+            field "comment" tag `shouldBe` Just A.Null
             workout <- only "workouts"
             field "minutes" workout `shouldBe` Just (A.Number 40)
             field "calories" workout `shouldBe` Just (A.Number 64)
