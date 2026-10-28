@@ -104,13 +104,15 @@ function renderHtmlLegend(chart, show) {
 }
 
 // On a phone a long daily line drops its points, which would crowd into a
-// solid band; they still appear on hover.
+// solid band; they still appear on hover. Marker-only series (showLine: false)
+// keep theirs, since the points are all they draw.
 const NARROW_POINT_LIMIT = 30;
 
 function withNarrowPoints(config) {
   if (!NARROW) return config;
   const datasets = config.data.datasets.map((ds) =>
-    (ds.type ?? config.type) === "line" && ds.pointRadius > 0 && ds.data.length > NARROW_POINT_LIMIT
+    (ds.type ?? config.type) === "line" && ds.showLine !== false && ds.pointRadius > 0
+      && ds.data.length > NARROW_POINT_LIMIT
       ? { ...ds, pointRadius: 0 }
       : ds);
   return { ...config, data: { ...config.data, datasets } };
