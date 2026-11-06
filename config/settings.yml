@@ -60,6 +60,11 @@ access-log-file: "_env:ACCESS_LOG_FILE:"
 backup-dir:  "_env:BACKUP_DIR:"
 backup-keep: "_env:BACKUP_KEEP:14"
 
+# Language of the advice reports: "ja" or "en". The scheduled oura-advice CLI
+# always uses it; the dashboard sends the language picked in its toggle and
+# falls back to this one.
+advice-language: "_env:ADVICE_LANGUAGE:ja"
+
 # App secrets, sourced from .env (loaded via Configuration.Dotenv at startup).
 # SECRET_KEY is required and validated in makeFoundation.
 oura-token:   "_env:OURA_TOKEN:"

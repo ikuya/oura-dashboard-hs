@@ -15,6 +15,7 @@ import qualified Data.Text as T
 import Network.HTTP.Types (status202, status400, status500)
 
 import DateText (DateRange (..), DayText, addDaysT, parseDayText, todayUtc)
+import Handler.Common (jsonBodyOrEmpty)
 import Json (jsonArray, jsonText, jsonLookup)
 import Metric (Metric (..), dailyMetricName, dashboardMetrics,
                metricName, parseDailyMetric, seriesMetrics)
@@ -157,16 +158,3 @@ parseMetricName v = do
     name <- jsonText v
     let series = [ (metricName m, m) | m <- seriesMetrics ]
     lookup name series <|> (Daily <$> parseDailyMetric name)
-
--- | The request body decoded as JSON, or an empty object when it is missing,
--- not JSON, or malformed (Python's @request.get_json(silent=True) or {}@).
---
--- 'parseCheckJsonBody' reports those failures in its result, so "silent" stays
--- scoped to a parse failure. The @catch \@SomeException@ this replaces also
--- swallowed unrelated exceptions, including async ones.
-jsonBodyOrEmpty :: Handler Value
-jsonBodyOrEmpty = do
-    result <- parseCheckJsonBody
-    return $ case result of
-        A.Success v -> v
-        A.Error _   -> A.object []

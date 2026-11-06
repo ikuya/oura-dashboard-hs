@@ -13,6 +13,10 @@ module Advice
     , JobStatus (..)
     , statusText
     , AdviceJobs
+    , AdviceError (..)
+    , adviceErrorCode
+    , adviceErrorDetail
+    , adviceErrorMessage
     , adviceSystemPrompt
     , extractKeyFields
     , adviceDays
@@ -37,7 +41,6 @@ import qualified Data.Map.Strict     as M
 import qualified Data.Text.Lazy      as TL
 import Database.Persist.Sql       (SqlBackend)
 import System.Exit                (ExitCode (..))
-import System.IO.Error            (isDoesNotExistError)
 import System.Process             (readCreateProcessWithExitCode, proc)
 import System.Timeout             (timeout)
 import qualified Data.UUID         as UUID
@@ -52,6 +55,7 @@ import Data.Time.LocalTime        (addLocalTime, zonedTimeToLocalTime,
 import DateText                   (DateRange (..), DayText (..), addDaysT)
 import Db
 import Json                       (jsonDouble, jsonText, jsonLookup)
+import Language                   (Language (..))
 import Metric                     (DailyMetric (..), EventKind (..),
                                    allEventKinds, dailyMetricName,
                                    dashboardMetrics, eventKindName)
@@ -75,58 +79,92 @@ data AdviceJob = AdviceJob
     , jobPeriod     :: A.Value
     , jobComparison :: A.Value
     , jobAdvice     :: Text
-    , jobError      :: Maybe Text
+    , jobError      :: Maybe AdviceError
     }
 
 type AdviceJobs = TVar (M.Map Text AdviceJob)
 
--- | The system prompt. With a previous advice to follow on from, the report
--- gains a section on what changed since then.
-adviceSystemPrompt :: Maybe SavedAdvice -> Text
-adviceSystemPrompt previous = intercalate "\n" $
-    [ "あなたはOura Ringの健康データを解析する専門家アシスタントです。"
-    , "ユーザーから過去14日間のOura Ringデータ（睡眠、準備度、活動量、ストレス、血中酸素濃度、体温偏差、回復力、VO2 Max、心血管年齢）が提供されます。"
-    , "`sleep_periods` は各日の睡眠段階の実時間（秒）です。同じ日の本睡と仮眠を合算しています。"
-    , "`bedtime_start`（就床）・`sleep_onset`（入眠）・`bedtime_end`（起床）はその日の本睡の時刻（記録地の時刻、HH:MM）です。`naps` は仮眠の回数、`nap_time_in_bed` はその合計時間（秒）です。"
-    , "`average_hrv`（夜間平均HRV、ms）・`lowest_heart_rate`（最低心拍、bpm）・`average_heart_rate`（平均心拍、bpm）・`average_breath`（平均呼吸数、回/分）もその日の本睡の値です。"
-    , "`tags` はユーザーが Oura アプリで付けたタグ（`tag` は種類のコードまたは自由入力名、例: `tag_sleep_alcohol` は飲酒）、`workouts` はワークアウト（`minutes` は時間、`start` は開始時刻）、`sessions` は瞑想・休息などのセッションです。日付 D のタグやワークアウトはその夜の睡眠（D+1 の `sleep_periods`・`sleep`）と翌朝の準備度（D+1 の `readiness`）に影響しうるので、該当があれば関連を具体的に指摘してください。"
+-- | The language-specific parts of the report: the language it is written
+-- in, its section headings, and what the "points to watch" section says when
+-- there is nothing to point out. The rest of the prompt is the same English
+-- instruction for every language.
+data AdviceStrings = AdviceStrings
+    { languageName   :: Text
+    , headingStatus  :: Text
+    , headingChanges :: Text
+    , headingWatch   :: Text
+    , headingAdvice  :: Text
+    , nothingNotable :: Text
+    }
+
+adviceStrings :: Language -> AdviceStrings
+adviceStrings Ja = AdviceStrings
+    { languageName   = "Japanese"
+    , headingStatus  = "📊 現在の健康状態"
+    , headingChanges = "🔁 前回からの変化"
+    , headingWatch   = "⚠️ 注目ポイント"
+    , headingAdvice  = "💡 アドバイス"
+    , nothingNotable = "特になし"
+    }
+adviceStrings En = AdviceStrings
+    { languageName   = "English"
+    , headingStatus  = "📊 Current Health"
+    , headingChanges = "🔁 Changes Since Last Time"
+    , headingWatch   = "⚠️ Points to Watch"
+    , headingAdvice  = "💡 Advice"
+    , nothingNotable = "Nothing in particular"
+    }
+
+-- | The system prompt for a report in the given language. With a previous
+-- advice to follow on from, the report gains a section on what changed since
+-- then.
+adviceSystemPrompt :: Language -> Maybe SavedAdvice -> Text
+adviceSystemPrompt lang previous = intercalate "\n" $
+    [ "You are an expert assistant who analyses health data from an Oura Ring."
+    , "The user provides the last " <> tshow adviceDays <> " days of Oura Ring data (sleep, readiness, activity, stress, blood oxygen, temperature deviation, resilience, VO2 Max and cardiovascular age)."
+    , "`sleep_periods` holds each day's actual time in each sleep stage, in seconds, summing that day's main sleep and its naps."
+    , "`bedtime_start` (into bed), `sleep_onset` (fell asleep) and `bedtime_end` (woke up) are the clock times of that day's main sleep (local time where it was recorded, HH:MM). `naps` is the number of naps and `nap_time_in_bed` their total time in bed, in seconds."
+    , "`average_hrv` (mean overnight HRV, ms), `lowest_heart_rate` (bpm), `average_heart_rate` (bpm) and `average_breath` (breaths per minute) are also from that day's main sleep."
+    , "`tags` are tags the user added in the Oura app (`tag` is the type code or a free-text name; e.g. `tag_sleep_alcohol` means alcohol), `workouts` are workouts (`minutes` is the duration, `start` the start time) and `sessions` are sessions such as meditation or rest. A tag or workout on day D can affect that night's sleep (the `sleep_periods` and `sleep` of D+1) and the next morning's readiness (the `readiness` of D+1); where one does, point out the link concretely."
     ]
     ++ whenPrevious
-    [ "データの後の `<previous_advice>` には前回のアドバイスが入っています。前回の保存日より後の日を中心に、前回指摘した点や提案がその後どうなったかをデータから評価してください。改善が見られない提案は同じ文言で繰り返さず、別の切り口を示してください。" ]
+    [ "After the data, `<previous_advice>` holds the previous advice. Focusing on the days after it was saved, assess from the data how the points and suggestions it made have turned out. Do not repeat a suggestion that shows no improvement in the same words; offer a different angle instead. The previous advice may be written in another language; write in " <> language <> " regardless." ]
     ++
     [ ""
-    , "## 役割"
-    , "1. データを客観的に分析し、現在の健康状態を簡潔に要約する"
-    , "2. トレンドや注目すべき変化点を特定する"
-    , "3. 実践的かつ具体的なアドバイスを提供する"
+    , "## Role"
+    , "1. Analyse the data objectively and summarise the current state of health concisely"
+    , "2. Identify trends and notable changes"
+    , "3. Give practical, specific advice"
     , ""
-    , "## 出力フォーマット"
-    , "以下の構成で回答してください："
+    , "## Output format"
+    , "Structure the report as follows, using these headings exactly:"
     , ""
-    , "### 📊 現在の健康状態"
-    , "（各メトリクスの直近の数値とトレンドを2〜3文でまとめる）"
+    , "### " <> headingStatus strings
+    , "(Summarise each metric's latest values and trend in 2-3 sentences)"
     , ""
     ]
     ++ whenPrevious
-    [ "### 🔁 前回からの変化"
-    , "（前回のアドバイス以降に改善・悪化した点と、前回の提案の効果が見られるかを2〜4項目の箇条書きで評価する）"
+    [ "### " <> headingChanges strings
+    , "(In 2-4 bullet points, assess what improved or worsened since the previous advice and whether its suggestions show an effect)"
     , ""
     ]
     ++
-    [ "### ⚠️ 注目ポイント"
-    , "（気になる変化・改善が必要な項目を箇条書きで列挙。良い場合は「特になし」と記載）"
+    [ "### " <> headingWatch strings
+    , "(Bullet the changes of concern and the items that need improving. If all is well, write \"" <> nothingNotable strings <> "\")"
     , ""
-    , "### 💡 アドバイス"
-    , "（データに基づいた具体的な行動提案を3〜5項目の箇条書きで記載）"
+    , "### " <> headingAdvice strings
+    , "(3-5 bullet points of specific actions based on the data)"
     , ""
     , "---"
-    , "- すべての回答は日本語で行うこと"
-    , "- スコアの良し悪しの判断基準：80以上=良好（緑）、60〜79=普通（黄）、60未満=要注意（赤）"
-    , "- 体温偏差は±0.5°C以内が正常範囲"
-    , "- 医療的な診断は行わないこと"
+    , "- Write the entire report in " <> language
+    , "- Score thresholds: 80 and above = good (green), 60-79 = fair (yellow), below 60 = needs attention (red)"
+    , "- A temperature deviation within ±0.5°C is in the normal range"
+    , "- Do not make medical diagnoses"
     , ""
     ]
   where
+    strings = adviceStrings lang
+    language = languageName strings
     whenPrevious ls = if isJust previous then ls else []
 
 appendSystemPrompt :: String
@@ -288,9 +326,9 @@ buildHealthPayload today = do
 
 -- | Build the prompt string: the system prompt, the JSON code block, and the
 -- previous advice (if any) for the report to follow on from.
-buildAdvicePrompt :: Maybe SavedAdvice -> A.Value -> Text
-buildAdvicePrompt previous healthData =
-    adviceSystemPrompt previous <> "\n\n```json\n" <> prettyJson <> "\n```"
+buildAdvicePrompt :: Language -> Maybe SavedAdvice -> A.Value -> Text
+buildAdvicePrompt lang previous healthData =
+    adviceSystemPrompt lang previous <> "\n\n```json\n" <> prettyJson <> "\n```"
         <> foldMap previousBlock previous
   where
     previousBlock p =
@@ -340,28 +378,58 @@ hasHealthData healthData = case jsonLookup "metrics" healthData of
     nonEmptyArr (A.Array a) = not (null a)
     nonEmptyArr _           = False
 
+-- | Why a report could not be had. The web shows each as a message in the
+-- dashboard's language (keyed by 'adviceErrorCode'); logs use the English
+-- 'adviceErrorMessage'.
+data AdviceError
+    = ClaudeNotFound
+    -- ^ The @claude@ command is not on the PATH.
+    | ClaudeFailed (Maybe Text)
+    -- ^ The CLI failed to start or exited non-zero, with what it said.
+    | AdviceTimeout
+    -- ^ No report within 'generateTimeout'.
+    deriving (Eq, Show)
+
+-- | A stable code for the API, which the dashboard translates.
+adviceErrorCode :: AdviceError -> Text
+adviceErrorCode ClaudeNotFound   = "claude_not_found"
+adviceErrorCode (ClaudeFailed _) = "claude_failed"
+adviceErrorCode AdviceTimeout    = "timeout"
+
+-- | What the CLI itself said when it failed, for the dashboard to show under
+-- its translated message.
+adviceErrorDetail :: AdviceError -> Maybe Text
+adviceErrorDetail (ClaudeFailed detail) = detail
+adviceErrorDetail _                     = Nothing
+
+-- | An English description for logs and API clients without a translation.
+adviceErrorMessage :: AdviceError -> Text
+adviceErrorMessage ClaudeNotFound =
+    "claude command not found; check that Claude Code is installed"
+adviceErrorMessage (ClaudeFailed detail) =
+    "claude CLI failed" <> foldMap (": " <>) detail
+adviceErrorMessage AdviceTimeout = "analysis timed out"
+
+-- | How long the CLI may take, in seconds.
+generateTimeout :: Int
+generateTimeout = 120
+
 -- | Run the claude CLI on a prompt: the report, or why it could not be had.
 -- Shared by the web's advice jobs and the scheduled CLI.
-generateAdvice :: Text -> IO (Either Text Text)
+generateAdvice :: Text -> IO (Either AdviceError Text)
 generateAdvice prompt = do
     let cp = proc "claude"
             [ "-p", unpack prompt, "--max-turns", "1", "--model", "opus"
             , "--append-system-prompt", appendSystemPrompt ]
-    result <- try (timeout (120 * 1000000) (readCreateProcessWithExitCode cp ""))
+    result <- try (timeout (generateTimeout * 1000000) (readCreateProcessWithExitCode cp ""))
     return $ case result of
         Left (e :: IOException)
-            | isDoesNotExistError e ->
-                Left "claude コマンドが見つかりません。Claude Code がインストールされているか確認してください。"
-            | otherwise ->
-                Left ("Claude Code の実行に失敗しました: " <> tshow e)
-        Right Nothing ->
-            Left "分析がタイムアウトしました。"
+            | isDoesNotExistError e -> Left ClaudeNotFound
+            | otherwise             -> Left (ClaudeFailed (Just (tshow e)))
+        Right Nothing -> Left AdviceTimeout
         Right (Just (ExitFailure _, out, err)) ->
-            Left (if null err
-                      then if null out
-                               then "Claude Code の実行に失敗しました。"
-                               else "Claude Code の実行に失敗しました: " <> pack out
-                      else pack err)
+            Left (ClaudeFailed (mfilter (not . null) (Just (pack err))
+                                <|> mfilter (not . null) (Just (pack out))))
         Right (Just (ExitSuccess, out, _)) ->
             Right (pack out)
 
@@ -399,7 +467,7 @@ runAdviceJob appLog jobs jid prompt saveAdvice' = do
     started <- getCurrentTime
     result <- generateAdvice prompt
     case result of
-        Left msg -> fail' msg
+        Left err -> fail' err
         Right adviceOut -> do
             setJob jobs jid (\j -> j { jobStatus = Completed, jobAdvice = adviceOut, jobError = Nothing })
             elapsed <- elapsedSince started
@@ -413,9 +481,10 @@ runAdviceJob appLog jobs jid prompt saveAdvice' = do
   where
     -- The job state is only kept in a TVar, so without this a failed job is
     -- invisible outside the browser session that polled for it.
-    fail' msg = do
-        setJob jobs jid (\j -> j { jobStatus = Failed, jobError = Just msg })
-        writeLog appLog LevelError ("advice job " <> jid <> " failed: " <> msg)
+    fail' err = do
+        setJob jobs jid (\j -> j { jobStatus = Failed, jobError = Just err })
+        writeLog appLog LevelError
+            ("advice job " <> jid <> " failed: " <> adviceErrorMessage err)
 
     elapsedSince t0 = do
         now <- getCurrentTime

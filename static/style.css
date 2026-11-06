@@ -330,6 +330,20 @@ footer table td { padding: 2px 12px 2px 0; }
 #csv-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
 #csv-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* Advice language toggle */
+#lang-btn {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+#lang-btn:hover { border-color: var(--accent); color: var(--text); }
+
 /* Advice button */
 #advice-btn {
   padding: 6px 16px;

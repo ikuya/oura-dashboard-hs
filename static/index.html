@@ -30,6 +30,7 @@
     </form>
     <button id="sync-btn">Sync</button>
     <button id="advice-btn">Advice</button>
+    <button id="lang-btn" type="button" data-i18n="lang.button" data-i18n-title="lang.title" data-i18n-aria-label="lang.title"></button>
     <button id="csv-btn" title="表示中の期間を日別 CSV でダウンロード">CSV</button>
     <button id="logout-btn">Logout</button>
   </header>
@@ -287,12 +288,12 @@
 
   <!-- Advice History Calendar -->
   <div class="chart-row">
-    <div class="chart-card calendar-card">
+    <div class="chart-card calendar-card" data-i18n-lang>
       <h2>Advice History</h2>
       <div class="calendar-header">
-        <button id="cal-prev-btn" class="cal-nav-btn" aria-label="前の月">&#8249;</button>
+        <button id="cal-prev-btn" class="cal-nav-btn" data-i18n-aria-label="calendar.prev">&#8249;</button>
         <span id="cal-month-label" class="cal-month-label"></span>
-        <button id="cal-next-btn" class="cal-nav-btn" aria-label="次の月">&#8250;</button>
+        <button id="cal-next-btn" class="cal-nav-btn" data-i18n-aria-label="calendar.next">&#8250;</button>
       </div>
       <div id="calendar-grid" class="calendar-grid"></div>
     </div>
@@ -305,23 +306,23 @@
     </details>
   </footer>
 
-  <div id="confirm-overlay" class="advice-overlay hidden" role="dialog" aria-modal="true">
+  <div id="confirm-overlay" class="advice-overlay hidden" role="dialog" aria-modal="true" data-i18n-lang>
     <div class="confirm-modal">
-      <p class="confirm-message">Claudeに健康データを送信して分析しますか？</p>
+      <p class="confirm-message" data-i18n="confirm.message"></p>
       <div class="confirm-actions">
-        <button id="confirm-cancel-btn" class="confirm-cancel-btn">キャンセル</button>
-        <button id="confirm-ok-btn" class="confirm-ok-btn">分析する</button>
+        <button id="confirm-cancel-btn" class="confirm-cancel-btn" data-i18n="confirm.cancel"></button>
+        <button id="confirm-ok-btn" class="confirm-ok-btn" data-i18n="confirm.ok"></button>
       </div>
     </div>
   </div>
 
-  <div id="advice-overlay" class="advice-overlay hidden" role="dialog" aria-modal="true">
+  <div id="advice-overlay" class="advice-overlay hidden" role="dialog" aria-modal="true" data-i18n-lang>
     <div class="advice-modal">
       <div class="advice-modal-header">
-        <span class="advice-modal-title">健康アドバイス</span>
+        <span class="advice-modal-title" data-i18n="modal.title"></span>
         <div class="advice-header-actions">
-          <button id="advice-copy-btn" class="advice-copy-btn" aria-label="コピー" title="Markdownをコピー">コピー</button>
-          <button id="advice-close-btn" class="advice-close-btn" aria-label="閉じる">&times;</button>
+          <button id="advice-copy-btn" class="advice-copy-btn" data-i18n="copy.label" data-i18n-aria-label="copy.label" data-i18n-title="copy.title"></button>
+          <button id="advice-close-btn" class="advice-close-btn" data-i18n-aria-label="modal.close">&times;</button>
         </div>
       </div>
       <div class="advice-modal-period" id="advice-period"></div>

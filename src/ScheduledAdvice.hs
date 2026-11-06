@@ -22,19 +22,20 @@ import GHC.IO.Encoding            (setFileSystemEncoding, setForeignEncoding,
 import System.Exit                (exitWith, ExitCode (..))
 import System.Log.FastLogger      (flushLogStr)
 
-import Advice      (advicePeriod, buildAdvicePrompt, buildHealthPayload,
-                    generateAdvice, hasHealthData)
+import Advice      (adviceErrorMessage, advicePeriod, buildAdvicePrompt,
+                    buildHealthPayload, generateAdvice, hasHealthData)
 import Application (getAppSettings)
 import DateText    (DateRange (..), DayText (..), todayIn)
 import Db          (getAdviceBefore, nowIso, saveAdvice)
 import Logging     (newAppLoggerSet, runLog)
 import Model       (migrateAll)
-import Settings    (AppSettings, appDatabaseConf, appLogFile, appShouldLogAll)
+import Settings    (AppSettings, appAdviceLang, appDatabaseConf, appLogFile,
+                    appShouldLogAll)
 
 scheduledAdviceMain :: IO ()
 scheduledAdviceMain = do
     -- cron may start us without LANG, and GHC would then read the claude CLI's
-    -- Japanese output (and pass the prompt) as ASCII and fail.
+    -- non-ASCII output (and pass the prompt) as ASCII and fail.
     setLocaleEncoding utf8
     setFileSystemEncoding utf8
     setForeignEncoding utf8
@@ -63,10 +64,11 @@ scheduledAdvice settings = do
             return (ExitFailure 1)
         else do
             started <- liftIO getCurrentTime
-            result <- liftIO $ generateAdvice (buildAdvicePrompt previous healthData)
+            result <- liftIO $ generateAdvice
+                (buildAdvicePrompt (appAdviceLang settings) previous healthData)
             case result of
-                Left msg -> do
-                    $logError $ "scheduled advice failed: " <> msg
+                Left err -> do
+                    $logError $ "scheduled advice failed: " <> adviceErrorMessage err
                     return (ExitFailure 1)
                 Right advice -> do
                     runSqlPool (saveAdvice start today advice) pool

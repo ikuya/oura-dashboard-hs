@@ -8,7 +8,7 @@ Oura Ring が計測した生体データ（睡眠・準備度・活動量・ス�
 
 Python/Flask 版 `oura-dashboard` からの移植で、**Python 版から引き継いだ JSON API はバイト単位で互換**に保たれています。その上で、睡眠段階（`/api/sleep_periods`）・月平均（`/api/monthly`）・タグ等のイベント（`/api/events`）の各 API は Haskell 版で追加したもので、`static/` 配下のフロントエンドもこれらを使う形で Python 版から大きく拡張されています。
 
-加えて、`claude` CLI を子プロセスとして起動し、直近 14 日分のデータから日本語のヘルスアドバイスを生成する機能を持ちます。Web からの非同期ジョブと、cron から定期実行する CLI（`oura-advice`）の 2 経路があり、どちらも直前のアドバイスを踏まえて「前回からの変化」を書かせます。cron の日次同期（`oura-daily-sync`）は同期後に DB のバックアップも取ります。
+加えて、`claude` CLI を子プロセスとして起動し、直近 14 日分のデータから日本語または英語のヘルスアドバイスを生成する機能を持ちます。Web からの非同期ジョブと、cron から定期実行する CLI（`oura-advice`）の 2 経路があり、どちらも直前のアドバイスを踏まえて「前回からの変化」を書かせます。cron の日次同期（`oura-daily-sync`）は同期後に DB のバックアップも取ります。
 
 ### たとえるなら
 
@@ -29,7 +29,8 @@ Python/Flask 版 `oura-dashboard` からの移植で、**Python 版から引き�
 | `src/Oura.hs` | 151 | Oura API v2 クライアント。**fetch 関数を持つレコード型** (`OuraClient`) にすることで、テスト時にスタブへ差し替え可能。next_token ページネーション、15 秒タイムアウト、HTTP ステータスと例外を `OuraError` に正規化 |
 | `src/Db.hs` | 469 | SQLite クエリ層。既存 Python スキーマとの 1:1 互換を保つため raw SQL 中心（`INSERT OR REPLACE` / `INSERT OR IGNORE`、`substr`、`json_extract`、`GROUP BY`）。イベントの置き換え保存、月平均の集計もここ。export リストなしで `module Db where` |
 | `src/Sync.hs` | 364 | 増分同期の中核。`findMissingRange` / `backfillRanges` / `runSync`。心拍のみ 30 日窓で逆方向にループ |
-| `src/Advice.hs` | 425 | アドバイス生成。ペイロード構築・プロンプト・`claude` CLI 実行（`generateAdvice`、120 秒タイムアウト）と、TVar 上のインメモリ Map + `forkIO` ワーカーによる Web 用ジョブ |
+| `src/Advice.hs` | 494 | アドバイス生成。ペイロード構築・プロンプト・`claude` CLI 実行（`generateAdvice`、120 秒タイムアウト）と、TVar 上のインメモリ Map + `forkIO` ワーカーによる Web 用ジョブ |
+| `src/Language.hs` | 44 | アドバイスの出力言語 `Language`（`Ja`/`En`）。`parseLanguage` は `en-US` のような地域付きコードも受け付ける。Yesod の `Lang`（`Text` の別名）と衝突しないようこの名前 |
 | `src/Metric.hs` | 121 | `DailyMetric` / `EventKind` / `Metric` 型。メトリック名を `dailyMetricName` / `eventKindName` に一元化。`allDailyMetrics = [minBound..maxBound]` で総当たりを保証 |
 | `src/DateText.hs` | 87 | `DayText`（`YYYY-MM-DD` の newtype）と `DateRange`。`parseDayText` は外部入力向けの検証付き `Maybe` 版、`parseDay` は `Day` への変換で失敗時 `error`。`todayIn` / `todayUtc` |
 | `src/Json.hs` | 42 | `Value` に対する `jsonLookup`/`jsonText`/`jsonDouble`/`jsonInt`/`jsonArray`。Oura API のペイロードと `data_json` を読むための共通ヘルパー |
@@ -40,9 +41,9 @@ Python/Flask 版 `oura-dashboard` からの移植で、**Python 版から引き�
 | `src/LoginThrottle.hs` | 68 | ログイン失敗の IP 単位カウント（15 分で 5 回 → 拒否）。純粋な核と TVar の殻 |
 | `src/Handler/Auth.hs` | 74 | ログイン画面（HTML フォーム）とログアウト |
 | `src/Handler/Api.hs` | 172 | metrics、monthly、heartrate、sleep_periods、events、sync |
-| `src/Handler/Advice.hs` | 113 | advice の POST / ポーリング / 履歴（同じ日に保存された複数件の切り替えを含む） |
+| `src/Handler/Advice.hs` | 130 | advice の POST / ポーリング / 履歴（同じ日に保存された複数件の切り替えを含む） |
 | `src/DailySync.hs` | 82 | cron 用 CLI（`oura-daily-sync`）。JST の今日、7 日分 backfill、同期後に DB バックアップ、エラー時 exit 1 |
-| `src/ScheduledAdvice.hs` | 76 | cron 用 CLI（`oura-advice`）。前景でアドバイスを生成して `advice_history` に保存、失敗時 exit 1 |
+| `src/ScheduledAdvice.hs` | 78 | cron 用 CLI（`oura-advice`）。前景でアドバイスを生成して `advice_history` に保存、失敗時 exit 1 |
 | `src/Backup.hs` | 59 | `VACUUM INTO` による日次バックアップと世代管理 |
 | `src/Application.hs` | 254 | `.env` ロード → 設定 → コネクションプール作成 → migrate → Warp 起動 |
 | `static/*.js` + `static/charts/*.js` | 約 3,200 | フロントエンド（main / charts / helpers / api / export と、ダッシュボードのセクションごとの `charts/` モジュール） |
@@ -243,9 +244,9 @@ flowchart LR
 - **`Sync.hs`** — `findMissingRange`（増分範囲の決定）、`backfillRanges`（欠損日の穴埋め範囲。日次メトリックは `score IS NOT NULL` で判定し、系列系は日ごとの「埋まっている」概念がない（タグの無い日が普通）ので窓全体を取り直す）、`syncDailyMetric`（フェッチ→`extractScore`→upsert、readiness 同期時は温度を派生生成）、`syncEvents`（フェッチ→`replaceEvents`）、`runSync`（メトリックごとに `foldRanges` で順にフェッチしつつ、`OuraError` はそのメトリックのエラーとして記録し次のメトリックへ進む）。心拍だけ `syncHeartrateRange` が 30 日窓で逆順ループ。
 - **`Advice.hs`** — 生成の核と Web ジョブ管理の両方を持つ。
   - `buildHealthPayload`（`advicePeriod` = 直近 `adviceDays`（14）日分を `getDailyMetricsBulk` で取得し `extractKeyFields` でメトリックごとに必要フィールドだけ抜粋。睡眠は段階時間の日次合計・本睡眠の時刻とバイタル・仮眠数、イベントは `eventSummary` で時刻を `HH:MM`、長さを分に整形して付ける。タグ名は `custom_name` が null・空なら `tag_type_code` を使い、空のコメントは送らない）
-  - `buildAdvicePrompt`（日本語システムプロンプト＋JSON。`getAdviceBefore` で得た直前のアドバイスがあれば、それを踏まえて「前回からの変化」の節を書かせる）
+  - `buildAdvicePrompt`（英語の共通システムプロンプト＋JSON。出力言語・見出し・「特になし」に当たる語だけを `adviceStrings :: Language -> AdviceStrings` から差し込み、末尾で「レポート全体を〜語で書くこと」と指示する。`getAdviceBefore` で得た直前のアドバイスがあれば、それを踏まえて「前回からの変化」の節を書かせる）
   - `adviceComparison`（レポート上部に出す主要スコアの「今回期間 vs 前回期間」の平均）、`hasHealthData`（データ皆無の判定）
-  - `generateAdvice`（`claude -p ... --model opus` を `proc` + `readCreateProcessWithExitCode` で実行、120 秒 `timeout`。Web ジョブと `ScheduledAdvice` で共有）
+  - `generateAdvice`（`claude -p ... --model opus` を `proc` + `readCreateProcessWithExitCode` で実行、120 秒 `timeout`。Web ジョブと `ScheduledAdvice` で共有）。失敗は `AdviceError`（`ClaudeNotFound`/`ClaudeFailed`/`AdviceTimeout`）で返し、API には `adviceErrorCode` のコードと英語の `adviceErrorMessage` を、ログには後者を出す。利用者向けの文言への翻訳はフロント（`static/i18n.js`）が持つ
   - `createAdviceJob`（UUID 発行、`TVar (Map Text AdviceJob)` に `Queued` で登録）→`runAdviceJob`（`forkIO` 済みの別スレッドで `generateAdvice` を呼び、成功時は `advice_history` に保存）
 - **`Backup.hs`** — `backupDatabase` は `VACUUM INTO` で `oura-YYYY-MM-DD.db.partial` に書き出してからリネームする（クラッシュしても途中までのファイルが `oura-*.db` として残らない）。SQLite 自身が一貫したスナップショットを書くので、Web サーバやアドバイスジョブが書き込み中でも安全。`VACUUM` はトランザクション内では失敗するため `runSqlPoolNoTransaction` を使う。同じ日の再実行は上書きし、`staleBackups` で新しい `backup-keep`（既定 14）世代だけ残す。`backup-dir` が空（既定）ならバックアップしない（複製 DB での開発実行が本物のバックアップを上書きしないように）。
 
@@ -254,14 +255,14 @@ flowchart LR
 - **`Foundation.hs`** — `App` レコード（DB プール、静的ファイル設定、`OuraClient` のテスト用差し替え口、advice ジョブ状態、`AppLog`、ログイン制限、月平均のキャッシュなど）。`isAuthorized` が `routeAccess` でルートを分類し、未認証なら `/` は `/login` へリダイレクト、`/static/*` は 404、`/api/*` は 401 JSON を返す（`routeAccess` はワイルドカードなしで、新ルートは分類を強制される）。セッション Cookie は `SameSite=Lax`、`defaultCsrfMiddleware` で CSRF トークンを照合する。`checkPassword` は bcrypt 検証。
 - **`Handler/Auth.hs`** — `getLoginR`/`postLoginR`/`postLogoutR`。ログイン画面は `templates/login.hamlet` を `withUrlRenderer` で直接描画する（`defaultLayout` は CSS を `/static/tmp` に書き出し、未認証では読めないため使わない）。失敗回数は `LoginThrottle` で IP ごとに数える。
 - **`Handler/Api.hs`** — `getMetricsR`/`getMetricR`（`parseRange` でクエリパラメータから `DateRange` を組み立て、`Db.getDailyMetrics(Bulk)` を呼ぶ。既定は直近 30 日）、`getMonthlyR`（期間指定なしで `Db.getMonthlyMeans`。結果は `appMonthlyCache`（`KeyedCache`）に `Db.getSyncStamps` をキーとして保持し、同期が走るまで再利用する。キーの読み取りと集計は同じトランザクションなので、キャッシュ値は常にそのキーの時点のデータと一致する）、`getHeartrateR`、`getSleepPeriodsR`、`getEventsR`（`Db.getAllEvents`）、`getSyncStatusR`、`postSyncR`（`appOuraClientOverride` があればそれを使い、なければ `OURA_TOKEN` から `realClient` を構築して `Sync.runSync` を実行、`backfillDays = 0` 固定）。日付を受け取る入口（`parseRange` のクエリパラメータ、sync 本文の `start`/`end`）はいずれも `requireDayText` を通し、不正な日付は 400 で弾く。`jsonBodyOrEmpty` は `parseCheckJsonBody` の結果を見て、パース失敗時だけ空オブジェクトにフォールバックする。
-- **`Handler/Advice.hs`** — `postAdviceR`（14 日分のペイロードと直前のアドバイスを取り、データが皆無なら 400、そうでなければ `adviceComparison` 付きのジョブを作って `forkIO` で起動し 202 を返す）、`getAdviceJobR`（`seg == "history"` かジョブ ID かを文字列で分岐）、`adviceJobStatus`（ジョブの状態に応じて 200/502/202）、`getAdviceEntryR`（`parseDayText` で日付形式を検証してから履歴を引く。`?at=` があればその `saved_at` の 1 件、なければその日の最新を返し、`saved_ats` にその日の全件の保存時刻を添える）。
+- **`Handler/Advice.hs`** — `postAdviceR`（本文の `lang` で出力言語を決め、無いか未対応なら設定 `advice-language` を使う。14 日分のペイロードと直前のアドバイスを取り、データが皆無なら 400（`error_code: "no_data"`）、そうでなければ `adviceComparison` 付きのジョブを作って `forkIO` で起動し 202 を返す）、`getAdviceJobR`（`seg == "history"` かジョブ ID かを文字列で分岐）、`adviceJobStatus`（ジョブの状態に応じて 200/502/202。502 には `error_code`・`error_detail`（CLI の出力）・`error` を載せる）、`getAdviceEntryR`（`parseDayText` で日付形式を検証してから履歴を引く。`?at=` があればその `saved_at` の 1 件、なければその日の最新を返し、`saved_ats` にその日の全件の保存時刻を添える）。
 - **`Handler/Home.hs`** / **`Handler/Common.hs`** — 静的な `index.html`・favicon・robots.txt の配信。
 
 ### エントリポイント
 
 - **`Application.hs`** — `.env` ロード→`AppSettings` 読み込み→`SECRET_KEY` 必須チェック→ロガー2系統（アプリ用 `appLogger`/`appPlainLogger`、アクセスログ用 `appAccessLoggerSet`）の初期化→DB プール作成→`migrateAll`→Warp 起動。`static/*` と `index.html` は `revalidating` で `Cache-Control: no-cache` 配信。`app/main.hs`（本番）と `app/devel.hs`/`DevelMain.hs`（開発）から呼ばれる。
 - **`DailySync.hs`** — cron から `app-daily-sync/main.hs` 経由で実行される CLI。JST の「今日」（`todayIn (hoursToTimeZone 9)`）を基準に 7 日分の backfill 付きで `runSync` を呼び、続けて `backupDatabase` を実行する。バックアップは同期が失敗しても行う（守りたいのは同期と無関係な `advice_history` のため）。同期エラーかバックアップ失敗のいずれかがあれば `exitWith (ExitFailure 1)`。
-- **`ScheduledAdvice.hs`** — cron から `app-advice/main.hs` 経由で実行される CLI。JST の今日を終端に Web のボタンと同じ 14 日分でアドバイスを生成し、`advice_history` に保存する（履歴一覧に並ぶ）。ジョブ機構は使わず前景で実行し、データ皆無や CLI 失敗は exit 1。cron が `LANG` なしで起動しても `claude` の日本語入出力を扱えるよう、冒頭でエンコーディングを UTF-8 に固定する。日次同期の後に走らせる前提。
+- **`ScheduledAdvice.hs`** — cron から `app-advice/main.hs` 経由で実行される CLI。JST の今日を終端に Web のボタンと同じ 14 日分で、設定 `advice-language` の言語のアドバイスを生成し、`advice_history` に保存する（履歴一覧に並ぶ）。ジョブ機構は使わず前景で実行し、データ皆無や CLI 失敗は exit 1。cron が `LANG` なしで起動しても `claude` の非 ASCII の入出力を扱えるよう、冒頭でエンコーディングを UTF-8 に固定する。日次同期の後に走らせる前提。
 
 ### フロントエンド
 
@@ -272,6 +273,7 @@ flowchart LR
   - `correlation.js` — 就床時刻×睡眠スコアの散布図、曜日平均に加え、「その日の歩数・中高強度活動・高ストレス時間・就床時刻」と「翌朝の Readiness・HRV」を突き合わせる翌日相関（`nextDayPoints`）
   - `events.js` — タグ・ワークアウト・セッションの一覧と、タグ（およびワークアウト）ごとの翌朝のスコア・HRV の平均（`tagLabel` がタグコードを表示名に変換）
   - `longterm.js` — `/api/monthly` による全期間の月平均。選択期間とは無関係で、日数の少ない月は中抜きの点で描く
+- `static/i18n.js` — アドバイス関連の画面（確認ダイアログ・レポート・履歴カレンダー）の ja/en 文言と `t()`。言語はヘッダーの JA/EN ボタンで選び localStorage に保存、未選択ならブラウザの言語に従う。静的な文言は `data-i18n*` 属性で差し替え、切り替え時は `langchange` イベントでカレンダーを描き直す。選んだ言語は `POST /api/advice` の `lang` として送られ、レポート自体の言語にもなる。他の画面は英語のまま
 - `static/helpers.js`（共通関数、`mainPeriod` など）・`api.js`（`apiFetch` ラッパー、401 時にログインモーダルを出す）・`export.js`（表示中期間の CSV 生成）
 - Chart.js と markdown ライブラリは `static/vendor/` から配信（CDN 非依存）
 
@@ -315,9 +317,13 @@ Oura の心拍 API はタイムスタンプを UTC（`...Z`）で返し、`Db.up
 
 `module Db where` なので内部ヘルパーも全公開。イベント・月平均の追加で 460 行になり、他モジュールとの契約がさらに見えにくくなっている。
 
-### i) 低: ログ言語が層によって混在
+### i) 解消済み: ログ言語が層によって混在
 
-`Sync.hs`/`Oura.hs`/`Advice.hs` のログ行自体は英語だが、`Advice.generateAdvice` が返す失敗メッセージはユーザー向け日本語文言で、`runAdviceJob` の `fail'` と `ScheduledAdvice` の `"scheduled advice failed: "` がそれをそのままログにも書いている。ユーザー向け応答と内部ログを同じ文字列で兼用しているため、ログを追う際に言語が混在する。
+`Advice.generateAdvice` の失敗メッセージはユーザー向けの日本語文言で、`runAdviceJob` の `fail'` と `ScheduledAdvice` がそれをそのままログに書いていたため、ログの言語が混在していた。アドバイスの多言語対応に合わせて失敗を `AdviceError` 型にし、ログと API の `error` は英語の `adviceErrorMessage`、利用者向けの文言はフロントが `error_code` から引く形に分けたので、現在は解消している。
+
+### j) 低: 運用タイムゾーンが JST に固定されている
+
+`DailySync`（`todayJst = todayIn (hoursToTimeZone 9)`）と `ScheduledAdvice`（`todayIn (hoursToTimeZone 9)`）は「今日」を JST で決め打ちしており、設定から変えられない。アドバイスの出力言語は `advice-language`（`ADVICE_LANGUAGE`）で切り替えられるようになったが、日本以外に住む利用者が cron を回すと、同期の終端と定期アドバイスの 14 日窓の終端が現地の日付と最大 1 日ずれる。`settings.yml` に IANA 名のタイムゾーン（例: `TIMEZONE`、既定 `Asia/Tokyo`）を設け、固定オフセットではなく夏時間を扱える形（`tz` / `time-compat` 系のライブラリでゾーン情報を引く）で両 CLI に渡すのが筋。a) の「今日の基準の不一致」と合わせて、Web 側の `todayUtc` も同じ設定に寄せれば解消できる。
 
 ### 確認済み・問題なし
 

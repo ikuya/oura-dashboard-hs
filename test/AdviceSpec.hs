@@ -15,6 +15,7 @@ import qualified Data.Aeson.KeyMap as KM
 
 import Advice (adviceComparison, buildAdvicePrompt, buildHealthPayload)
 import DateText (DateRange (..))
+import Language (Language (..), allLanguages)
 import Db (SavedAdvice (..), replaceEvents, upsertDailyMetric, upsertSleepPeriods)
 import Metric (DailyMetric (..), EventKind (..))
 import Model (migrateAll)
@@ -55,15 +56,32 @@ spec :: Spec
 spec = do
     describe "build_advice_prompt" $ do
         it "asks for no follow-up without a previous advice" $ do
-            let prompt = buildAdvicePrompt Nothing (A.object [])
+            let prompt = buildAdvicePrompt Ja Nothing (A.object [])
             prompt `shouldNotSatisfy` isInfixOf "前回"
-            prompt `shouldNotSatisfy` isInfixOf "<previous_advice"
+            prompt `shouldNotSatisfy` isInfixOf "previous_advice"
 
         it "appends the previous advice and asks what changed since" $ do
-            let prompt = buildAdvicePrompt (Just previousAdvice) (A.object [])
+            let prompt = buildAdvicePrompt Ja (Just previousAdvice) (A.object [])
             prompt `shouldSatisfy` isInfixOf "### 🔁 前回からの変化"
             prompt `shouldSatisfy` isInfixOf
                 "<previous_advice saved_at=\"2024-01-08T02:30:00+00:00\" period=\"2023-12-26..2024-01-08\">\n### 💡 アドバイス\n- 早く寝る\n</previous_advice>"
+
+        it "asks for the report in the given language" $ do
+            buildAdvicePrompt Ja Nothing (A.object [])
+                `shouldSatisfy` isInfixOf "Write the entire report in Japanese"
+            buildAdvicePrompt En Nothing (A.object [])
+                `shouldSatisfy` isInfixOf "Write the entire report in English"
+
+        it "uses the language's headings" $ do
+            let prompt = buildAdvicePrompt En (Just previousAdvice) (A.object [])
+            prompt `shouldSatisfy` isInfixOf "### 📊 Current Health"
+            prompt `shouldSatisfy` isInfixOf "### 🔁 Changes Since Last Time"
+            prompt `shouldNotSatisfy` isInfixOf "### 📊 現在の健康状態"
+
+        it "states the analysed days from adviceDays" $
+            forM_ allLanguages $ \lang ->
+                buildAdvicePrompt lang Nothing (A.object [])
+                    `shouldSatisfy` isInfixOf "the last 14 days"
 
     describe "advice_comparison" $ do
         let scores c = case field "scores" c of

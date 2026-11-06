@@ -18,6 +18,7 @@ import Data.FileEmbed              (embedFile)
 import Data.Yaml                   (decodeEither')
 import Database.Persist.Sqlite     (SqliteConf)
 import Language.Haskell.TH.Syntax  (Exp, Name, Q)
+import Language                     (Language (..))
 import Network.Wai.Handler.Warp    (HostPreference)
 import Yesod.Default.Config2       (applyEnvValue, configSettingsYml)
 import Yesod.Default.Util          (WidgetFileSettings, widgetFileNoReload,
@@ -83,6 +84,11 @@ data AppSettings = AppSettings
     -- default) turns backups off.
     , appBackupKeep             :: Int
     -- ^ How many daily backups to keep; older ones are deleted.
+
+    , appAdviceLang             :: Language
+    -- ^ The language advice is written in when the request does not name
+    -- one: always for the scheduled CLI, and for a web request without a
+    -- valid @lang@.
     }
 
 instance FromJSON AppSettings where
@@ -130,6 +136,8 @@ instance FromJSON AppSettings where
         backupDir                 <- o .:? "backup-dir"   .!= ""
         let appBackupDir = if null backupDir then Nothing else Just backupDir
         appBackupKeep             <- o .:? "backup-keep"  .!= 14
+
+        appAdviceLang             <- o .:? "advice-language" .!= Ja
 
         return AppSettings {..}
 

@@ -23,7 +23,8 @@ Python/Flask 版から移植したエンドポイントはバイト単位で互�
 - **個人ベースライン** — 各カードに直前 28 日平均との差を表示し、日次チャートには
   7 日移動平均を破線で表示
 - 差分同期（ローカル未保存の日付のみを取得）
-- **アドバイス** — 直近14日間を `claude` CLI で分析し、日本語の健康サマリーを表示。
+- **アドバイス** — 直近14日間を `claude` CLI で分析し、日本語または英語の健康サマリーを表示
+  （ヘッダーの JA/EN ボタンで、レポートとアドバイス画面の言語を切り替え）。
   結果は DB に保存され、後から閲覧可能。前回のアドバイスを渡して前回からの変化も書かせ、
   見出しには期間平均スコアと前回の期間との差を表示。cron による定期実行も可能（「定期アドバイス」参照）
 - **パスワード保護** — セッションベース。パスワードは bcrypt ハッシュとして
@@ -172,6 +173,9 @@ stack exec oura-advice
 30 11 * * 1,3,5  /home/YOUR_USER/work/oura-dashboard-hs/run_advice.sh
 ```
 
+定期アドバイスは `ADVICE_LANGUAGE`（`ja`（既定）または `en`）の言語で書かれます。
+`.env` か環境変数で指定します。Web からの依頼が言語を指定しなかった場合の既定値も兼ねます。
+
 ## ログ
 
 `LOG_FILE` を設定するとファイルに出力します。未設定の場合は stdout に出力します
@@ -250,6 +254,7 @@ src/Db.hs                         SQLite のクエリ/upsert 層 (db.py の移�
 src/Oura.hs                       Oura Ring API v2 クライアント（取得関数のレコード）
 src/Sync.hs                       差分同期ロジック (sync.py の移植)
 src/Advice.hs                     アドバイスのジョブ状態管理 + claude CLI ワーカー
+src/Language.hs                   アドバイスの出力言語
 src/DailySync.hs                  日次同期 CLI (cron)
 src/Backup.hs                     日次 DB バックアップ (VACUUM INTO・世代管理)
 src/ScheduledAdvice.hs            定期アドバイス CLI (cron)
@@ -261,5 +266,5 @@ src/Handler/Api.hs                metrics/heartrate/sleep_periods/events/sync �
 src/Handler/Advice.hs             アドバイス用エンドポイント
 src/Handler/Home.hs               static/index.html の配信
 app/main.hs                       Web サーバのエントリポイント
-static/                           フロントエンド (index.html, *.js, style.css)
+static/                           フロントエンド (index.html, *.js, style.css。i18n.js にアドバイス画面の ja/en 文言)
 ```

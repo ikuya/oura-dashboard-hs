@@ -26,7 +26,9 @@ has been added since — the sleep stage charts — is new on both sides.
   the 28 days before it, and the daily charts carry a dashed 7-day moving average
 - Incremental sync (only fetches dates not yet stored locally)
 - **Advice** — analyzes the last 14 days with the `claude` CLI and shows a
-  Japanese health summary; saved to the DB and browsable. Each run is given the
+  health summary in Japanese or English (the JA/EN toggle in the header picks
+  the language of the report and of the advice screens); saved to the DB and
+  browsable. Each run is given the
   previous advice and reports what changed since, and the report is headed by
   its period's average scores against the previous one's. Can also run on a
   schedule from cron (see Scheduled Advice)
@@ -179,6 +181,10 @@ night is included. For Monday, Wednesday and Friday:
 30 11 * * 1,3,5  /home/YOUR_USER/work/oura-dashboard-hs/run_advice.sh
 ```
 
+Scheduled reports are written in `ADVICE_LANGUAGE` (`ja`, the default, or
+`en`), set in `.env` or the environment. The same setting is the fallback for
+a web request that names no language.
+
 ## Logging
 
 Set `LOG_FILE` to write logs to a file; leave it unset to log to stdout (the
@@ -257,6 +263,7 @@ src/Db.hs                         SQLite query/upsert layer (ported from db.py)
 src/Oura.hs                       Oura Ring API v2 client (record of fetch functions)
 src/Sync.hs                       Incremental sync logic (ported from sync.py)
 src/Advice.hs                     Advice job state + claude CLI worker
+src/Language.hs                   Languages an advice report can be written in
 src/DailySync.hs                  Daily sync CLI (cron)
 src/Backup.hs                     Daily database backup (VACUUM INTO, pruning)
 src/ScheduledAdvice.hs            Scheduled advice CLI (cron)
@@ -268,5 +275,5 @@ src/Handler/Api.hs                metrics/heartrate/sleep_periods/events/sync ha
 src/Handler/Advice.hs             Advice endpoints
 src/Handler/Home.hs               Serves static/index.html
 app/main.hs                       Web server entry point
-static/                           Frontend (index.html, *.js, style.css)
+static/                           Frontend (index.html, *.js, style.css; i18n.js holds the advice UI's ja/en texts)
 ```

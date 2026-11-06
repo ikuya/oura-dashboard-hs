@@ -10,7 +10,7 @@ import qualified Data.Aeson as A
 import Data.Aeson ((.=))
 import qualified Data.Map.Strict as M
 import Database.Persist.Sql (rawExecute, toPersistValue)
-import Advice (AdviceJob (..), JobStatus (..))
+import Advice (AdviceError (..), AdviceJob (..), JobStatus (..))
 import DateText (DateRange (..))
 import qualified Db
 import Metric (EventKind (..))
@@ -280,6 +280,7 @@ spec = do
             login
             request $ setMethod "POST" >> setUrl AdviceR >> addTokenFromCookie
             statusIs 400
+            bodyContains "\"error_code\":\"no_data\""
 
         it "job not found returns 404" $ do
             login
@@ -295,9 +296,10 @@ spec = do
 
         it "failed job returns 502" $ do
             login
-            insertJob "job-failed" Failed "" (Just "分析がタイムアウトしました。")
+            insertJob "job-failed" Failed "" (Just AdviceTimeout)
             get (AdviceJobR "job-failed")
             statusIs 502
+            bodyContains "\"error_code\":\"timeout\""
 
         it "history list returns saved advice" $ do
             login
@@ -365,7 +367,7 @@ spec = do
 
 -- | Insert a job directly into the foundation's TVar (mirrors the Python tests
 -- setting _advice_jobs directly).
-insertJob :: Text -> JobStatus -> Text -> Maybe Text -> YesodExample App ()
+insertJob :: Text -> JobStatus -> Text -> Maybe AdviceError -> YesodExample App ()
 insertJob jid st advice merr = do
     app <- getTestYesod
     let period = A.object ["start" .= ("2024-01-01" :: Text), "end" .= ("2024-01-14" :: Text), "days" .= (14 :: Int)]

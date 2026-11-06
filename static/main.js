@@ -6,6 +6,7 @@ import { renderMonthly } from "./charts/longterm.js";
 import { addDaysStr } from "./charts/common.js";
 import { BASELINE_DAYS, AVERAGE_DAYS } from "./charts/baseline.js";
 import { dailyCsvRows, downloadCsv } from "./export.js";
+import { t, getLang, setLang, LANGS, adviceErrorText, applyStaticTexts } from "./i18n.js";
 
 // Shared across advice IIFEs
 let sharedAdviceRaw = "";
@@ -466,8 +467,8 @@ function renderAdviceComparison(el, comparison) {
   const label = document.createElement("span");
   label.className = "comparison-label";
   label.textContent = prev
-    ? `期間平均スコア（前回 ${prev.saved_at.slice(0, 10)} 保存分との差）`
-    : "期間平均スコア（前回のアドバイスなし）";
+    ? t("comparison.previous", { date: prev.saved_at.slice(0, 10) })
+    : t("comparison.none");
   el.append(label);
   for (const s of scores) {
     const item = document.createElement("span");
@@ -486,6 +487,27 @@ function renderAdviceComparison(el, comparison) {
     }
     el.append(item);
   }
+}
+
+// A failed analysis, as opposed to a request that did not get through.
+class AdviceFailed extends Error {}
+
+function showLoading(el, message) {
+  el.innerHTML = `
+    <div class="advice-loading">
+      <div class="advice-spinner"></div>
+      <span></span>
+    </div>`;
+  el.querySelector("span").textContent = message;
+}
+
+// Text rather than HTML: the message can carry the CLI's own output.
+function showError(el, message) {
+  const p = document.createElement("p");
+  p.style.color = "var(--red)";
+  p.style.whiteSpace = "pre-wrap";
+  p.textContent = message;
+  el.replaceChildren(p);
 }
 
 // --- Advice button ---
@@ -541,8 +563,8 @@ function renderAdviceComparison(el, comparison) {
         document.body.removeChild(ta);
       } catch (_) {}
     }
-    copyBtn.textContent = success ? "コピー済" : "失敗";
-    setTimeout(() => { copyBtn.textContent = "コピー"; }, 2000);
+    copyBtn.textContent = success ? t("copy.done") : t("copy.failed");
+    setTimeout(() => { copyBtn.textContent = t("copy.label"); }, 2000);
   });
 
   adviceBtn.addEventListener("click", () => openConfirm());
@@ -561,47 +583,43 @@ function renderAdviceComparison(el, comparison) {
         return data;
       }
       if (data.status === "failed") {
-        throw new Error(data.error || "分析に失敗しました。");
+        throw new AdviceFailed(adviceErrorText(data));
       }
       await wait(1500);
     }
-    throw new Error("分析がタイムアウトしました。");
+    throw new AdviceFailed(t("error.timeout"));
   }
 
   confirmOkBtn.addEventListener("click", async () => {
     closeConfirm();
     adviceBtn.disabled = true;
-    adviceBtn.textContent = "分析中...";
+    adviceBtn.textContent = t("advice.analyzing");
     periodEl.textContent = "";
     versionsEl.replaceChildren();
     comparisonEl.replaceChildren();
     copyBtn.disabled = true;
-    copyBtn.textContent = "コピー";
+    copyBtn.textContent = t("copy.label");
     sharedAdviceRaw = "";
-    contentEl.innerHTML = `
-      <div class="advice-loading">
-        <div class="advice-spinner"></div>
-        <span>Claudeが健康データを分析しています...</span>
-      </div>`;
+    showLoading(contentEl, t("loading.analyzing"));
     openModal();
 
     try {
       const res = await apiFetch("/api/advice", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ lang: getLang() }),
       });
       const queued = await res.json();
 
       if (!res.ok) {
-        contentEl.innerHTML = `<p style="color:var(--red)">エラー: ${queued.error || res.status}</p>`;
+        showError(contentEl, t("error", { message: adviceErrorText(queued) }));
         return;
       }
 
       const data = await pollAdviceJob(queued.job_id);
 
       if (data.period) {
-        periodEl.textContent = `分析期間: ${data.period.start} 〜 ${data.period.end}`;
+        periodEl.textContent = t("period", data.period);
       }
       renderAdviceComparison(comparisonEl, data.comparison);
       sharedAdviceRaw = data.advice || "";
@@ -609,7 +627,8 @@ function renderAdviceComparison(el, comparison) {
       copyBtn.disabled = false;
       if (typeof refreshAdviceCalendar === "function") refreshAdviceCalendar();
     } catch (e) {
-      contentEl.innerHTML = `<p style="color:var(--red)">ネットワークエラー: ${e.message}</p>`;
+      const key = e instanceof AdviceFailed ? "error" : "error.network";
+      showError(contentEl, t(key, { message: e.message }));
     } finally {
       adviceBtn.disabled = false;
       adviceBtn.textContent = "Advice";
@@ -645,10 +664,13 @@ function renderAdviceComparison(el, comparison) {
   }
 
   function renderCalendar() {
-    const MONTHS = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
-    const DAYS   = ["M","T","W","T","F","S","S"];
+    const lang = getLang();
+    // 2024-01-01 is a Monday, so these are the weekdays from Monday on.
+    const weekday = new Intl.DateTimeFormat(lang, { weekday: "narrow" });
+    const DAYS = Array.from({ length: 7 }, (_, i) => weekday.format(new Date(2024, 0, 1 + i)));
 
-    monthLabel.textContent = `${calState.year}年 ${MONTHS[calState.month]}`;
+    monthLabel.textContent = new Intl.DateTimeFormat(lang, { year: "numeric", month: "long" })
+      .format(new Date(calState.year, calState.month, 1));
 
     const today        = new Date().toISOString().slice(0, 10);
     const rawDow       = new Date(calState.year, calState.month, 1).getDay();
@@ -689,7 +711,7 @@ function renderAdviceComparison(el, comparison) {
     if (isNaN(d)) return savedAt;
     const opts = { hour: "2-digit", minute: "2-digit" };
     if (withDate) Object.assign(opts, { year: "numeric", month: "2-digit", day: "2-digit" });
-    return d.toLocaleString("ja-JP", opts);
+    return d.toLocaleString(getLang(), opts);
   }
 
   // A button per advice saved that day, so an earlier one is not hidden by a
@@ -709,15 +731,11 @@ function renderAdviceComparison(el, comparison) {
   async function openSavedAdvice(isoDate, savedAt) {
     sharedAdviceRaw = "";
     copyBtn.disabled = true;
-    copyBtn.textContent = "コピー";
+    copyBtn.textContent = t("copy.label");
     periodEl.textContent = "";
     if (!savedAt) versionsEl.replaceChildren();
     comparisonEl.replaceChildren();
-    contentEl.innerHTML = `
-      <div class="advice-loading">
-        <div class="advice-spinner"></div>
-        <span>アドバイスを読み込んでいます...</span>
-      </div>`;
+    showLoading(contentEl, t("loading.history"));
     openModal();
 
     try {
@@ -725,11 +743,12 @@ function renderAdviceComparison(el, comparison) {
       const res  = await apiFetch(`/api/advice/history/${isoDate}${query}`);
       const data = await res.json();
       if (!res.ok) {
-        contentEl.innerHTML = `<p style="color:var(--red)">エラー: ${data.error || res.status}</p>`;
+        showError(contentEl, t("error", { message: data.error || res.status }));
         return;
       }
       if (data.period) {
-        periodEl.textContent = `分析期間: ${data.period.start} 〜 ${data.period.end}　（保存: ${savedStamp(data.saved_at, true)}）`;
+        periodEl.textContent = t("period", data.period)
+          + t("period.saved", { at: savedStamp(data.saved_at, true) });
       }
       renderVersions(isoDate, data.saved_ats, data.saved_at);
       renderAdviceComparison(comparisonEl, data.comparison);
@@ -737,7 +756,7 @@ function renderAdviceComparison(el, comparison) {
       contentEl.innerHTML = marked.parse(sharedAdviceRaw);
       copyBtn.disabled = false;
     } catch (e) {
-      contentEl.innerHTML = `<p style="color:var(--red)">ネットワークエラー: ${e.message}</p>`;
+      showError(contentEl, t("error.network", { message: e.message }));
     }
   }
 
@@ -763,7 +782,14 @@ function renderAdviceComparison(el, comparison) {
   calState.month = now.getMonth();
   loadAdviceDates();
   refreshAdviceCalendar = loadAdviceDates;
+  window.addEventListener("langchange", renderCalendar);
 })();
+
+// --- Advice language toggle ---
+applyStaticTexts();
+document.getElementById("lang-btn").addEventListener("click", () => {
+  setLang(LANGS[(LANGS.indexOf(getLang()) + 1) % LANGS.length]);
+});
 
 // --- Logout button ---
 document.getElementById("logout-btn").addEventListener("click", async () => {

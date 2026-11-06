@@ -15,14 +15,19 @@ import Control.Concurrent  (forkIO)
 import Network.HTTP.Types (status202, status400, status404, status502)
 
 import DateText        (DateRange (..), DayText, parseDayText, todayUtc)
-import Json            (jsonLookup)
+import Handler.Common  (jsonBodyOrEmpty)
+import Json            (jsonLookup, jsonText)
+import Language        (Language, parseLanguage)
 import qualified Db
 import qualified Advice
-import Advice (JobStatus (..), AdviceJob (..), statusText)
+import Advice (JobStatus (..), AdviceJob (..), adviceErrorCode,
+               adviceErrorDetail, adviceErrorMessage, statusText)
 
--- POST /api/advice
+-- POST /api/advice — body @{"lang": "en"}@ picks the report's language;
+-- without a supported one it is the @advice-language@ setting.
 postAdviceR :: Handler Value
 postAdviceR = do
+    lang <- requestLang
     today <- todayUtc
     now <- Db.nowIso
     (healthData, previous) <- runDB $
@@ -30,10 +35,11 @@ postAdviceR = do
 
     -- 400 if there is no data at all.
     unless (Advice.hasHealthData healthData) $
-        sendStatusJSON status400
-            (A.object ["error" A..= ("データがありません。まずSyncを実行してください。" :: Text)])
+        sendStatusJSON status400 $ A.object
+            [ "error_code" A..= ("no_data" :: Text)
+            , "error" A..= ("no data; run a sync first" :: Text) ]
 
-    let prompt = Advice.buildAdvicePrompt previous healthData
+    let prompt = Advice.buildAdvicePrompt lang previous healthData
         period = fromMaybe A.Null (jsonLookup "period" healthData)
     comparison <- runDB $
         Advice.adviceComparison (Advice.advicePeriod today) previous
@@ -70,7 +76,10 @@ adviceJobStatus jid = do
                     [ "advice"     A..= jobAdvice job
                     , "comparison" A..= jobComparison job ])
                 Failed    -> sendStatusJSON status502 $
-                    A.object (base ++ ["error" A..= fromMaybe "" (jobError job)])
+                    A.object (base ++
+                        [ "error_code"   A..= fmap adviceErrorCode (jobError job)
+                        , "error_detail" A..= (adviceErrorDetail =<< jobError job)
+                        , "error"        A..= maybe "" adviceErrorMessage (jobError job) ])
                 _         -> sendStatusJSON status202 (A.object base)
 
 -- GET /api/advice/history
@@ -106,6 +115,14 @@ getAdviceEntryR raw = do
                 ]
 
 -- helpers ----------------------------------------------------------------
+
+-- | The @lang@ of the request body, or the configured default when it is
+-- missing or not a supported language.
+requestLang :: Handler Language
+requestLang = do
+    body <- jsonBodyOrEmpty
+    fallback <- appAdviceLang . appSettings <$> getYesod
+    return $ fromMaybe fallback (parseLanguage =<< jsonText =<< jsonLookup "lang" body)
 
 -- | Save advice to advice_history, running in the connection pool.
 saveAdviceIO :: ConnectionPool -> DayText -> DayText -> Text -> IO ()
