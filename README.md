@@ -185,6 +185,68 @@ Scheduled reports are written in `ADVICE_LANGUAGE` (`ja`, the default, or
 `en`), set in `.env` or the environment. The same setting is the fallback for
 a web request that names no language.
 
+## Adding a language
+
+Advice reports and the advice UI (confirm dialog, report modal, history
+calendar) come in Japanese and English; the rest of the dashboard is English
+only. To add another language, follow the steps below (French, `fr`, is used
+as the example):
+
+1. **`src/Language.hs`** — add a constructor and its ISO 639-1 code:
+
+   ```haskell
+   data Language = Ja | En | Fr
+   ...
+   languageCode Fr = "fr"
+   ```
+
+   `allLanguages` and `parseLanguage` derive from `Enum`/`Bounded`, so from
+   here on `ADVICE_LANGUAGE=fr` and `{"lang": "fr"}` on `POST /api/advice` are
+   accepted (a region subtag such as `fr-CA` is ignored).
+
+2. **`src/Advice.hs`** — add an `adviceStrings Fr` entry. The prompt itself
+   is English for every language and needs no translation; only these fields
+   vary:
+   - `languageName` — the language's name **in English** (`"French"`), as the
+     prompt says "Write the entire report in French".
+   - `headingStatus`, `headingChanges`, `headingWatch`, `headingAdvice` — the
+     report's section headings, written in the new language. Keep the leading
+     emoji, which the other languages share.
+   - `nothingNotable` — what the "points to watch" section says when there is
+     nothing to point out, in the new language.
+
+   `stack build` warns about a non-exhaustive pattern in any per-language
+   function the new constructor is missing from (`-Wall`), so a clean build
+   means nothing was left out on the server side.
+
+3. **`static/i18n.js`** — the advice UI:
+   - Add `"fr"` to `LANGS`. The header toggle cycles through `LANGS` in order.
+   - Add a `fr: { ... }` block to `MESSAGES` with every key of the `en` block.
+     A missing key falls back to English, so a partial translation works but
+     shows mixed text. Keep `{start}`, `{message}` and the other placeholders
+     as they are.
+   - `lang.button` is the toggle's label (`"FR"`) and `lang.title` its
+     tooltip, which names the language the next click switches to. With a
+     third language the order becomes ja → en → fr → ja, so update the `ja`
+     and `en` tooltips as well.
+   - `browserLang()` only recognises Japanese; extend it so a browser set to
+     the new language starts in it before the viewer picks one.
+   - Month and weekday names in the history calendar and the saved-at times
+     come from `Intl` with the language code, so they need no translation.
+
+4. **Tests** — `test/LanguageSpec.hs` uses `fr` as its example of an
+   unsupported code; switch it to a code you did not add. Tests that loop over
+   `allLanguages` cover the new language automatically. Run `stack test`.
+
+5. **Docs** — mention the new code in `config/settings.yml`'s
+   `advice-language` comment and in this README (Features and Scheduled
+   Advice), and in `README_ja.md` likewise.
+
+To check it, build, restart the server, switch the toggle to the new language,
+and run Advice: the dialog, the loading text and the report should all be in
+it. Advice already saved stays in the language it was written in; a new report
+following on from one in another language is still written in the new one.
+
 ## Logging
 
 Set `LOG_FILE` to write logs to a file; leave it unset to log to stdout (the
