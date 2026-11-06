@@ -1,6 +1,6 @@
 # oura-dashboard-hs コード全体の解説
 
-> 最終更新: 2026-10-27（`5fc3f35` 時点）
+> 最終更新: 2026-11-06（`582fbca` 時点）
 
 ## 1. これは何をするコードか
 
@@ -29,7 +29,7 @@ Python/Flask 版 `oura-dashboard` からの移植で、**Python 版から引き�
 | `src/Oura.hs` | 151 | Oura API v2 クライアント。**fetch 関数を持つレコード型** (`OuraClient`) にすることで、テスト時にスタブへ差し替え可能。next_token ページネーション、15 秒タイムアウト、HTTP ステータスと例外を `OuraError` に正規化 |
 | `src/Db.hs` | 460 | SQLite クエリ層。既存 Python スキーマとの 1:1 互換を保つため raw SQL 中心（`INSERT OR REPLACE` / `INSERT OR IGNORE`、`substr`、`json_extract`、`GROUP BY`）。イベントの置き換え保存、月平均の集計もここ。export リストなしで `module Db where` |
 | `src/Sync.hs` | 364 | 増分同期の中核。`findMissingRange` / `backfillRanges` / `runSync`。心拍のみ 30 日窓で逆方向にループ |
-| `src/Advice.hs` | 422 | アドバイス生成。ペイロード構築・プロンプト・`claude` CLI 実行（`generateAdvice`、120 秒タイムアウト）と、TVar 上のインメモリ Map + `forkIO` ワーカーによる Web 用ジョブ |
+| `src/Advice.hs` | 425 | アドバイス生成。ペイロード構築・プロンプト・`claude` CLI 実行（`generateAdvice`、120 秒タイムアウト）と、TVar 上のインメモリ Map + `forkIO` ワーカーによる Web 用ジョブ |
 | `src/Metric.hs` | 121 | `DailyMetric` / `EventKind` / `Metric` 型。メトリック名を `dailyMetricName` / `eventKindName` に一元化。`allDailyMetrics = [minBound..maxBound]` で総当たりを保証 |
 | `src/DateText.hs` | 87 | `DayText`（`YYYY-MM-DD` の newtype）と `DateRange`。`parseDayText` は外部入力向けの検証付き `Maybe` 版、`parseDay` は `Day` への変換で失敗時 `error`。`todayIn` / `todayUtc` |
 | `src/Json.hs` | 42 | `Value` に対する `jsonLookup`/`jsonText`/`jsonDouble`/`jsonInt`/`jsonArray`。Oura API のペイロードと `data_json` を読むための共通ヘルパー |
@@ -39,12 +39,12 @@ Python/Flask 版 `oura-dashboard` からの移植で、**Python 版から引き�
 | `src/LoginThrottle.hs` | 68 | ログイン失敗の IP 単位カウント（15 分で 5 回 → 拒否）。純粋な核と TVar の殻 |
 | `src/Handler/Auth.hs` | 74 | ログイン画面（HTML フォーム）とログアウト |
 | `src/Handler/Api.hs` | 164 | metrics、monthly、heartrate、sleep_periods、events、sync |
-| `src/Handler/Advice.hs` | 109 | advice の POST / ポーリング / 履歴 |
+| `src/Handler/Advice.hs` | 113 | advice の POST / ポーリング / 履歴（同じ日に保存された複数件の切り替えを含む） |
 | `src/DailySync.hs` | 82 | cron 用 CLI（`oura-daily-sync`）。JST の今日、7 日分 backfill、同期後に DB バックアップ、エラー時 exit 1 |
 | `src/ScheduledAdvice.hs` | 76 | cron 用 CLI（`oura-advice`）。前景でアドバイスを生成して `advice_history` に保存、失敗時 exit 1 |
 | `src/Backup.hs` | 59 | `VACUUM INTO` による日次バックアップと世代管理 |
 | `src/Application.hs` | 250 | `.env` ロード → 設定 → コネクションプール作成 → migrate → Warp 起動 |
-| `static/*.js` + `static/charts/*.js` | 約 3,100 | フロントエンド（main / charts / helpers / api / export と、ダッシュボードのセクションごとの `charts/` モジュール） |
+| `static/*.js` + `static/charts/*.js` | 約 3,200 | フロントエンド（main / charts / helpers / api / export と、ダッシュボードのセクションごとの `charts/` モジュール） |
 
 ### データモデル（`config/models.persistentmodels`）
 
@@ -69,7 +69,7 @@ Python/Flask 版 `oura-dashboard` からの移植で、**Python 版から引き�
 /api/sleep_periods         睡眠段階チャート用（必要フィールドのみ返す）
 /api/events                タグ・ワークアウト・セッション（kind ごと）
 /api/sync  /api/sync/status
-/api/advice/history/#Text  （順序上 advice/#Text より先に定義）
+/api/advice/history/#Text  ?at=<saved_at> でその日の特定の 1 件（順序上 advice/#Text より先に定義）
 /api/advice                POST でジョブ投入
 /api/advice/#Text          "history" とジョブ ID を同一ハンドラで文字列分岐
 ```
@@ -236,10 +236,11 @@ flowchart LR
   - `mergeRow` が `data_json` に `day`/`score` を上書きマージする（DB の `score` 列が優先、Python の `{**data, "day":..., "score":...}` と同じ）。`getDailyMetricsBulk` は `M.fromListWith (flip (++))` で (metric, day) 順の行を集約。
   - `mainSleepPeriod`（その日の本睡眠の選択：`long_sleep` 優先、なければ `late_nap` を除いた中で就床時間最長。`static/helpers.js` の `mainPeriod` と同じ規則）は、月平均でも使うため `Advice` からここへ移った。
   - **イベント**：`replaceEvents` は範囲内の同種イベントを `DELETE` してから `INSERT OR REPLACE` する。Oura アプリでタグを消すと次の取得結果から単に消えるだけなので、upsert だけでは残り続けてしまうため。`getEvents` は範囲に掛かるもの（タグは `start_day`〜`end_day` のどこかが範囲に入れば対象）を開始順に返し、セッションの 5 秒間隔系列（`heart_rate` など）は落とす。`getAllEvents` が kind 名をキーにまとめる。
+  - **アドバイス履歴**：`getAdviceDates` は保存日（`saved_at` の UTC 日付）ごとに最新 1 件を一覧用に返し、`getAdviceForDate` はその日に保存された全件を古い順に返す（同じ日にボタンを押し直しても前の分は上書きされない）。
   - **月平均**：`getMonthlyMeans` は全期間を対象に、日次メトリックのスコア・歩数・高ストレス時間（`monthlyDailySeries`）と、本睡眠の平均 HRV・最低心拍（`mainSleepPeriods` → `monthlySleepFields`）の月ごとの平均と日数を返す。`sleep_periods` の行は 5 分系列を含んで大きいため、必要なフィールドだけ SQL の `json_object`/`json_extract` で抜き出してからデコードする。
 - **`Sync.hs`** — `findMissingRange`（増分範囲の決定）、`backfillRanges`（欠損日の穴埋め範囲。日次メトリックは `score IS NOT NULL` で判定し、系列系は日ごとの「埋まっている」概念がない（タグの無い日が普通）ので窓全体を取り直す）、`syncDailyMetric`（フェッチ→`extractScore`→upsert、readiness 同期時は温度を派生生成）、`syncEvents`（フェッチ→`replaceEvents`）、`runSync`（メトリックごとに `foldRanges` で順にフェッチしつつ、`OuraError` はそのメトリックのエラーとして記録し次のメトリックへ進む）。心拍だけ `syncHeartrateRange` が 30 日窓で逆順ループ。
 - **`Advice.hs`** — 生成の核と Web ジョブ管理の両方を持つ。
-  - `buildHealthPayload`（`advicePeriod` = 直近 `adviceDays`（14）日分を `getDailyMetricsBulk` で取得し `extractKeyFields` でメトリックごとに必要フィールドだけ抜粋。睡眠は段階時間の日次合計・本睡眠の時刻とバイタル・仮眠数、イベントは `eventSummary` で時刻を `HH:MM`、長さを分に整形して付ける）
+  - `buildHealthPayload`（`advicePeriod` = 直近 `adviceDays`（14）日分を `getDailyMetricsBulk` で取得し `extractKeyFields` でメトリックごとに必要フィールドだけ抜粋。睡眠は段階時間の日次合計・本睡眠の時刻とバイタル・仮眠数、イベントは `eventSummary` で時刻を `HH:MM`、長さを分に整形して付ける。タグ名は `custom_name` が null・空なら `tag_type_code` を使い、空のコメントは送らない）
   - `buildAdvicePrompt`（日本語システムプロンプト＋JSON。`getAdviceBefore` で得た直前のアドバイスがあれば、それを踏まえて「前回からの変化」の節を書かせる）
   - `adviceComparison`（レポート上部に出す主要スコアの「今回期間 vs 前回期間」の平均）、`hasHealthData`（データ皆無の判定）
   - `generateAdvice`（`claude -p ... --model opus` を `proc` + `readCreateProcessWithExitCode` で実行、120 秒 `timeout`。Web ジョブと `ScheduledAdvice` で共有）
@@ -251,7 +252,7 @@ flowchart LR
 - **`Foundation.hs`** — `App` レコード（DB プール、静的ファイル設定、`OuraClient` のテスト用差し替え口、advice ジョブ状態、`AppLog`、ログイン制限など）。`isAuthorized` が `routeAccess` でルートを分類し、未認証なら `/` は `/login` へリダイレクト、`/static/*` は 404、`/api/*` は 401 JSON を返す（`routeAccess` はワイルドカードなしで、新ルートは分類を強制される）。セッション Cookie は `SameSite=Lax`、`defaultCsrfMiddleware` で CSRF トークンを照合する。`checkPassword` は bcrypt 検証。
 - **`Handler/Auth.hs`** — `getLoginR`/`postLoginR`/`postLogoutR`。ログイン画面は `templates/login.hamlet` を `withUrlRenderer` で直接描画する（`defaultLayout` は CSS を `/static/tmp` に書き出し、未認証では読めないため使わない）。失敗回数は `LoginThrottle` で IP ごとに数える。
 - **`Handler/Api.hs`** — `getMetricsR`/`getMetricR`（`parseRange` でクエリパラメータから `DateRange` を組み立て、`Db.getDailyMetrics(Bulk)` を呼ぶ。既定は直近 30 日）、`getMonthlyR`（期間指定なしで `Db.getMonthlyMeans`）、`getHeartrateR`、`getSleepPeriodsR`、`getEventsR`（`Db.getAllEvents`）、`getSyncStatusR`、`postSyncR`（`appOuraClientOverride` があればそれを使い、なければ `OURA_TOKEN` から `realClient` を構築して `Sync.runSync` を実行、`backfillDays = 0` 固定）。日付を受け取る入口（`parseRange` のクエリパラメータ、sync 本文の `start`/`end`）はいずれも `requireDayText` を通し、不正な日付は 400 で弾く。`jsonBodyOrEmpty` は `parseCheckJsonBody` の結果を見て、パース失敗時だけ空オブジェクトにフォールバックする。
-- **`Handler/Advice.hs`** — `postAdviceR`（14 日分のペイロードと直前のアドバイスを取り、データが皆無なら 400、そうでなければ `adviceComparison` 付きのジョブを作って `forkIO` で起動し 202 を返す）、`getAdviceJobR`（`seg == "history"` かジョブ ID かを文字列で分岐）、`adviceJobStatus`（ジョブの状態に応じて 200/502/202）、`getAdviceEntryR`（`parseDayText` で日付形式を検証してから履歴を引く）。
+- **`Handler/Advice.hs`** — `postAdviceR`（14 日分のペイロードと直前のアドバイスを取り、データが皆無なら 400、そうでなければ `adviceComparison` 付きのジョブを作って `forkIO` で起動し 202 を返す）、`getAdviceJobR`（`seg == "history"` かジョブ ID かを文字列で分岐）、`adviceJobStatus`（ジョブの状態に応じて 200/502/202）、`getAdviceEntryR`（`parseDayText` で日付形式を検証してから履歴を引く。`?at=` があればその `saved_at` の 1 件、なければその日の最新を返し、`saved_ats` にその日の全件の保存時刻を添える）。
 - **`Handler/Home.hs`** / **`Handler/Common.hs`** — 静的な `index.html`・favicon・robots.txt の配信。
 
 ### エントリポイント
@@ -262,9 +263,9 @@ flowchart LR
 
 ### フロントエンド
 
-- `static/main.js` — 画面制御（期間プリセット・カスタム期間、同期、アドバイス、チャートの全画面表示など）
+- `static/main.js` — 画面制御（期間プリセット・カスタム期間、同期、アドバイス、チャートの全画面表示など）。アドバイス履歴では同じ日に複数件あれば保存時刻のボタン（`advice-versions`）を並べて切り替えられる
 - `static/charts.js` — Chart.js 描画の入口。`renderAll` が `charts/` 配下のモジュールを呼ぶ
-  - `common.js`（共通部品・色・日付ヘルパー）、`baseline.js`（7 日移動平均・28 日ベースライン）、`cards.js`
+  - `common.js`（共通部品・色・日付ヘルパー。`makeChart` は全チャートに、狭い画面で長い折れ線の点を消す処理（マーカーだけの系列は除く）と、ツールチップ内のタップでそれを閉じるプラグイン `dismissTooltipOnTap` を被せる）、`baseline.js`（7 日移動平均・28 日ベースライン）、`cards.js`
   - `scores.js`（スコア推移と内訳ヒートマップ）、`sleep.js`、`vitals.js`、`stress.js`、`activity.js`
   - `correlation.js` — 就床時刻×睡眠スコアの散布図、曜日平均に加え、「その日の歩数・中高強度活動・高ストレス時間・就床時刻」と「翌朝の Readiness・HRV」を突き合わせる翌日相関（`nextDayPoints`）
   - `events.js` — タグ・ワークアウト・セッションの一覧と、タグ（およびワークアウト）ごとの翌朝のスコア・HRV の平均（`tagLabel` がタグコードを表示名に変換）
@@ -276,11 +277,11 @@ flowchart LR
 
 ## 4. 潜在的な改善点
 
-実害が大きいと思われる順に挙げます。**静的読解による判断で、再現テストは未実施です。** 前回のレビュー以降に解消された項目は末尾にまとめています。
+実害が大きいと思われる順に挙げます。**静的読解による判断で、再現テストは未実施です。**
 
 ### 中: 「今日」の基準がモジュール間で不一致
 
-`Handler.Api` の `parseRange`/`postSyncR` と `Handler.Advice.postAdviceR` は `DateText.todayUtc` を、`DailySync`/`ScheduledAdvice` は JST（`todayIn (hoursToTimeZone 9)`）を使う。JST 深夜帯（0:00〜9:00）では両者が指す日付が 1 日ずれるため、Web からの同期と cron からの同期で対象範囲が食い違うほか、Web のアドバイスボタンと定期アドバイスで分析期間（14 日窓）の終端が変わる。どちらかに統一すべき。
+`Handler.Api` の `parseRange`/`postSyncR` と `Handler.Advice.postAdviceR` は `DateText.todayUtc` を、`DailySync`/`ScheduledAdvice` は JST（`todayIn (hoursToTimeZone 9)`）を使う。JST 深夜帯（0:00〜9:00）では両者が指す日付が 1 日ずれるため、Web からの同期と cron からの同期で対象範囲が食い違うほか、Web のアドバイスボタンと定期アドバイスで分析期間（14 日窓）の終端が変わる。アドバイス履歴の「保存日」も `saved_at` の UTC 日付なので、JST 0:00〜9:00 に保存したものは前日の分として並ぶ。どちらかに統一すべき。
 
 ### 中: アドバイスジョブが無制限に蓄積する
 
@@ -315,9 +316,3 @@ flowchart LR
 - `oura.db` / `*.sqlite3` / `config/client_session_key.aes` / `.env` / `backup/` はいずれも `.gitignore` 済みで、リポジトリには含まれていない。
 - `generateAdvice` は `proc` で `claude` CLI を起動しており（シェル経由ではない）、コマンドインジェクションの余地はない。プロンプト内容は DB 由来（タグの自由入力名・コメントもユーザー本人の入力）。
 - バックアップの `VACUUM INTO ?` はパスをプレースホルダで渡しており、ディレクトリ名に記号が含まれても SQL として解釈されない。
-
-### 前回レビュー以降に解消された項目
-
-- **「日付パースが `error` を呼び 500 クラッシュしうる」（旧・高）** — `DateText.parseDayText` に暦としての妥当性検証を追加し、`Handler.Api.requireDayText` が `parseRange` のクエリパラメータと sync 本文の `start`/`end` の両方を、`Handler.Advice.getAdviceEntryR` が履歴の日付を検証して失敗時に 400 を返すようになったことで解消。外部から入った `DayText` は必ず `parseDay` でパースできる。
-- **「`parseBodyOr` が `SomeException` を握り潰す」（旧・中）** — コミット `1d698e2`/`8b206e7` で `Handler.Api.jsonBodyOrEmpty` が `parseCheckJsonBody` の結果を見てパース失敗時のみフォールバックする実装に変更され、非同期例外を含む無関係な例外まで飲み込む問題は解消。
-- **メトリック名・日付・グローバルロガーが文字列/暗黙状態だった問題** — コミット `1835052` で `Metric.hs`、`DateText.hs`、`Logging.hs` に型化され、ディスパッチの網羅性がコンパイル時に保証されるようになった。
