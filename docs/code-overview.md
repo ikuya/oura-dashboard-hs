@@ -27,23 +27,24 @@ Python/Flask 版 `oura-dashboard` からの移植で、**Python 版から引き�
 | ファイル | 行数 | 役割 |
 |---|---|---|
 | `src/Oura.hs` | 151 | Oura API v2 クライアント。**fetch 関数を持つレコード型** (`OuraClient`) にすることで、テスト時にスタブへ差し替え可能。next_token ページネーション、15 秒タイムアウト、HTTP ステータスと例外を `OuraError` に正規化 |
-| `src/Db.hs` | 460 | SQLite クエリ層。既存 Python スキーマとの 1:1 互換を保つため raw SQL 中心（`INSERT OR REPLACE` / `INSERT OR IGNORE`、`substr`、`json_extract`、`GROUP BY`）。イベントの置き換え保存、月平均の集計もここ。export リストなしで `module Db where` |
+| `src/Db.hs` | 469 | SQLite クエリ層。既存 Python スキーマとの 1:1 互換を保つため raw SQL 中心（`INSERT OR REPLACE` / `INSERT OR IGNORE`、`substr`、`json_extract`、`GROUP BY`）。イベントの置き換え保存、月平均の集計もここ。export リストなしで `module Db where` |
 | `src/Sync.hs` | 364 | 増分同期の中核。`findMissingRange` / `backfillRanges` / `runSync`。心拍のみ 30 日窓で逆方向にループ |
 | `src/Advice.hs` | 425 | アドバイス生成。ペイロード構築・プロンプト・`claude` CLI 実行（`generateAdvice`、120 秒タイムアウト）と、TVar 上のインメモリ Map + `forkIO` ワーカーによる Web 用ジョブ |
 | `src/Metric.hs` | 121 | `DailyMetric` / `EventKind` / `Metric` 型。メトリック名を `dailyMetricName` / `eventKindName` に一元化。`allDailyMetrics = [minBound..maxBound]` で総当たりを保証 |
 | `src/DateText.hs` | 87 | `DayText`（`YYYY-MM-DD` の newtype）と `DateRange`。`parseDayText` は外部入力向けの検証付き `Maybe` 版、`parseDay` は `Day` への変換で失敗時 `error`。`todayIn` / `todayUtc` |
 | `src/Json.hs` | 42 | `Value` に対する `jsonLookup`/`jsonText`/`jsonDouble`/`jsonInt`/`jsonArray`。Oura API のペイロードと `data_json` を読むための共通ヘルパー |
+| `src/KeyedCache.hs` | 33 | 「キー付きの 1 値キャッシュ」。キーが同じ間は前回の計算結果を再利用する（`/api/monthly` 用） |
 | `src/Logging.hs` | 97 | `AppLog`（`LogLevel -> Text -> IO ()` を包んだ newtype）でプレーン `IO` から書けるログ出口を明示的に受け渡す |
 | `src/Settings.hs` | 188 | `AppSettings`。`config/settings.yml` と環境変数（`BACKUP_DIR`/`BACKUP_KEEP` など）から読む |
-| `src/Foundation.hs` | 235 | `App` 型、`isAuthorized` によるルート単位の認可（`routeAccess`）、CSRF、セッション Cookie |
+| `src/Foundation.hs` | 239 | `App` 型、`isAuthorized` によるルート単位の認可（`routeAccess`）、CSRF、セッション Cookie |
 | `src/LoginThrottle.hs` | 68 | ログイン失敗の IP 単位カウント（15 分で 5 回 → 拒否）。純粋な核と TVar の殻 |
 | `src/Handler/Auth.hs` | 74 | ログイン画面（HTML フォーム）とログアウト |
-| `src/Handler/Api.hs` | 164 | metrics、monthly、heartrate、sleep_periods、events、sync |
+| `src/Handler/Api.hs` | 172 | metrics、monthly、heartrate、sleep_periods、events、sync |
 | `src/Handler/Advice.hs` | 113 | advice の POST / ポーリング / 履歴（同じ日に保存された複数件の切り替えを含む） |
 | `src/DailySync.hs` | 82 | cron 用 CLI（`oura-daily-sync`）。JST の今日、7 日分 backfill、同期後に DB バックアップ、エラー時 exit 1 |
 | `src/ScheduledAdvice.hs` | 76 | cron 用 CLI（`oura-advice`）。前景でアドバイスを生成して `advice_history` に保存、失敗時 exit 1 |
 | `src/Backup.hs` | 59 | `VACUUM INTO` による日次バックアップと世代管理 |
-| `src/Application.hs` | 250 | `.env` ロード → 設定 → コネクションプール作成 → migrate → Warp 起動 |
+| `src/Application.hs` | 254 | `.env` ロード → 設定 → コネクションプール作成 → migrate → Warp 起動 |
 | `static/*.js` + `static/charts/*.js` | 約 3,200 | フロントエンド（main / charts / helpers / api / export と、ダッシュボードのセクションごとの `charts/` モジュール） |
 
 ### データモデル（`config/models.persistentmodels`）
@@ -237,7 +238,8 @@ flowchart LR
   - `mainSleepPeriod`（その日の本睡眠の選択：`long_sleep` 優先、なければ `late_nap` を除いた中で就床時間最長。`static/helpers.js` の `mainPeriod` と同じ規則）は、月平均でも使うため `Advice` からここへ移った。
   - **イベント**：`replaceEvents` は範囲内の同種イベントを `DELETE` してから `INSERT OR REPLACE` する。Oura アプリでタグを消すと次の取得結果から単に消えるだけなので、upsert だけでは残り続けてしまうため。`getEvents` は範囲に掛かるもの（タグは `start_day`〜`end_day` のどこかが範囲に入れば対象）を開始順に返し、セッションの 5 秒間隔系列（`heart_rate` など）は落とす。`getAllEvents` が kind 名をキーにまとめる。
   - **アドバイス履歴**：`getAdviceDates` は保存日（`saved_at` の UTC 日付）ごとに最新 1 件を一覧用に返し、`getAdviceForDate` はその日に保存された全件を古い順に返す（同じ日にボタンを押し直しても前の分は上書きされない）。
-  - **月平均**：`getMonthlyMeans` は全期間を対象に、日次メトリックのスコア・歩数・高ストレス時間（`monthlyDailySeries`）と、本睡眠の平均 HRV・最低心拍（`mainSleepPeriods` → `monthlySleepFields`）の月ごとの平均と日数を返す。`sleep_periods` の行は 5 分系列を含んで大きいため、必要なフィールドだけ SQL の `json_object`/`json_extract` で抜き出してからデコードする。
+  - **月平均**：`getMonthlyMeans` は全期間を対象に、日次メトリックのスコア・歩数・高ストレス時間（`monthlyDailySeries`）と、本睡眠の平均 HRV・最低心拍（`mainSleepPeriods` → `monthlySleepFields`）の月ごとの平均と日数を返す。`sleep_periods` の行は 5 分系列を含んで大きいため、必要なフィールドだけ SQL の `json_object`/`json_extract` で抜き出してからデコードする。全履歴の走査で重い（6 年分で約 0.6 秒）ため、Handler 側でキャッシュしている（後述）。
+  - **同期の版**：`getSyncStamps` は `sync_log` の `(metric, last_synced_at)` を返す。同期のどの経路も行の書き込みと同じトランザクションで `sync_log` を更新するので、同期対象テーブルが変わったことの安価な指紋になる（cron の別プロセスによる同期も拾える）。
 - **`Sync.hs`** — `findMissingRange`（増分範囲の決定）、`backfillRanges`（欠損日の穴埋め範囲。日次メトリックは `score IS NOT NULL` で判定し、系列系は日ごとの「埋まっている」概念がない（タグの無い日が普通）ので窓全体を取り直す）、`syncDailyMetric`（フェッチ→`extractScore`→upsert、readiness 同期時は温度を派生生成）、`syncEvents`（フェッチ→`replaceEvents`）、`runSync`（メトリックごとに `foldRanges` で順にフェッチしつつ、`OuraError` はそのメトリックのエラーとして記録し次のメトリックへ進む）。心拍だけ `syncHeartrateRange` が 30 日窓で逆順ループ。
 - **`Advice.hs`** — 生成の核と Web ジョブ管理の両方を持つ。
   - `buildHealthPayload`（`advicePeriod` = 直近 `adviceDays`（14）日分を `getDailyMetricsBulk` で取得し `extractKeyFields` でメトリックごとに必要フィールドだけ抜粋。睡眠は段階時間の日次合計・本睡眠の時刻とバイタル・仮眠数、イベントは `eventSummary` で時刻を `HH:MM`、長さを分に整形して付ける。タグ名は `custom_name` が null・空なら `tag_type_code` を使い、空のコメントは送らない）
@@ -249,9 +251,9 @@ flowchart LR
 
 ### Handler 層
 
-- **`Foundation.hs`** — `App` レコード（DB プール、静的ファイル設定、`OuraClient` のテスト用差し替え口、advice ジョブ状態、`AppLog`、ログイン制限など）。`isAuthorized` が `routeAccess` でルートを分類し、未認証なら `/` は `/login` へリダイレクト、`/static/*` は 404、`/api/*` は 401 JSON を返す（`routeAccess` はワイルドカードなしで、新ルートは分類を強制される）。セッション Cookie は `SameSite=Lax`、`defaultCsrfMiddleware` で CSRF トークンを照合する。`checkPassword` は bcrypt 検証。
+- **`Foundation.hs`** — `App` レコード（DB プール、静的ファイル設定、`OuraClient` のテスト用差し替え口、advice ジョブ状態、`AppLog`、ログイン制限、月平均のキャッシュなど）。`isAuthorized` が `routeAccess` でルートを分類し、未認証なら `/` は `/login` へリダイレクト、`/static/*` は 404、`/api/*` は 401 JSON を返す（`routeAccess` はワイルドカードなしで、新ルートは分類を強制される）。セッション Cookie は `SameSite=Lax`、`defaultCsrfMiddleware` で CSRF トークンを照合する。`checkPassword` は bcrypt 検証。
 - **`Handler/Auth.hs`** — `getLoginR`/`postLoginR`/`postLogoutR`。ログイン画面は `templates/login.hamlet` を `withUrlRenderer` で直接描画する（`defaultLayout` は CSS を `/static/tmp` に書き出し、未認証では読めないため使わない）。失敗回数は `LoginThrottle` で IP ごとに数える。
-- **`Handler/Api.hs`** — `getMetricsR`/`getMetricR`（`parseRange` でクエリパラメータから `DateRange` を組み立て、`Db.getDailyMetrics(Bulk)` を呼ぶ。既定は直近 30 日）、`getMonthlyR`（期間指定なしで `Db.getMonthlyMeans`）、`getHeartrateR`、`getSleepPeriodsR`、`getEventsR`（`Db.getAllEvents`）、`getSyncStatusR`、`postSyncR`（`appOuraClientOverride` があればそれを使い、なければ `OURA_TOKEN` から `realClient` を構築して `Sync.runSync` を実行、`backfillDays = 0` 固定）。日付を受け取る入口（`parseRange` のクエリパラメータ、sync 本文の `start`/`end`）はいずれも `requireDayText` を通し、不正な日付は 400 で弾く。`jsonBodyOrEmpty` は `parseCheckJsonBody` の結果を見て、パース失敗時だけ空オブジェクトにフォールバックする。
+- **`Handler/Api.hs`** — `getMetricsR`/`getMetricR`（`parseRange` でクエリパラメータから `DateRange` を組み立て、`Db.getDailyMetrics(Bulk)` を呼ぶ。既定は直近 30 日）、`getMonthlyR`（期間指定なしで `Db.getMonthlyMeans`。結果は `appMonthlyCache`（`KeyedCache`）に `Db.getSyncStamps` をキーとして保持し、同期が走るまで再利用する。キーの読み取りと集計は同じトランザクションなので、キャッシュ値は常にそのキーの時点のデータと一致する）、`getHeartrateR`、`getSleepPeriodsR`、`getEventsR`（`Db.getAllEvents`）、`getSyncStatusR`、`postSyncR`（`appOuraClientOverride` があればそれを使い、なければ `OURA_TOKEN` から `realClient` を構築して `Sync.runSync` を実行、`backfillDays = 0` 固定）。日付を受け取る入口（`parseRange` のクエリパラメータ、sync 本文の `start`/`end`）はいずれも `requireDayText` を通し、不正な日付は 400 で弾く。`jsonBodyOrEmpty` は `parseCheckJsonBody` の結果を見て、パース失敗時だけ空オブジェクトにフォールバックする。
 - **`Handler/Advice.hs`** — `postAdviceR`（14 日分のペイロードと直前のアドバイスを取り、データが皆無なら 400、そうでなければ `adviceComparison` 付きのジョブを作って `forkIO` で起動し 202 を返す）、`getAdviceJobR`（`seg == "history"` かジョブ ID かを文字列で分岐）、`adviceJobStatus`（ジョブの状態に応じて 200/502/202）、`getAdviceEntryR`（`parseDayText` で日付形式を検証してから履歴を引く。`?at=` があればその `saved_at` の 1 件、なければその日の最新を返し、`saved_ats` にその日の全件の保存時刻を添える）。
 - **`Handler/Home.hs`** / **`Handler/Common.hs`** — 静的な `index.html`・favicon・robots.txt の配信。
 
@@ -291,10 +293,6 @@ flowchart LR
 
 `Db.getDailyMetricsBulk` は `M.fromListWith (flip (++))` で行を集約するが、`flip (++) new old = old ++ new` は毎回 `old` 全体をたどるため、1 メトリックあたりの行数の二乗に比例する。14〜30 日分なら無害だが、カスタム期間で数年分を指定すると劣化する。逆順に積んで最後に `reverse` するか `Data.Sequence` を使えば線形になる。（同じ書き方の `mainSleepPeriods` はキーが日なので 1 キーあたり数行で、問題にならない。）
 
-### 低: `/api/monthly` は毎回全履歴を集計する
-
-`Db.getMonthlyMeans` はリクエストごとに `daily_metrics` と `sleep_periods` の全行を走査し、`json_extract` で値を取り出す。個人の数年分なら問題ないが、ダッシュボードを開くたびに走るので、データが増えて重くなったら同期時に月次集計を保存する形にできる。
-
 ### 低: advice ルートが URL の文字列比較で分岐している
 
 `/api/advice/#Text`（`AdviceJobR`）が `"history"` かジョブ ID かを `Handler.Advice.getAdviceJobR` 内の文字列比較で判定している。ジョブ ID は UUID なので実害はないが、ルート定義を分けたほうが堅牢。
@@ -312,6 +310,8 @@ flowchart LR
 `Sync.hs`/`Oura.hs`/`Advice.hs` のログ行自体は英語だが、`Advice.generateAdvice` が返す失敗メッセージはユーザー向け日本語文言で、`runAdviceJob` の `fail'` と `ScheduledAdvice` の `"scheduled advice failed: "` がそれをそのままログにも書いている。ユーザー向け応答と内部ログを同じ文字列で兼用しているため、ログを追う際に言語が混在する。
 
 ### 確認済み・問題なし
+
+- `/api/monthly` の月平均は `sync_log` の更新時刻をキーにキャッシュしており、2 回目以降は全履歴を走査しない。ただし同期以外の手段（手作業の SQL、バックアップからの復元など）で DB を書き換えた場合は `sync_log` が変わらないため、Web サーバを再起動するまで古い値が返る。
 
 - `oura.db` / `*.sqlite3` / `config/client_session_key.aes` / `.env` / `backup/` はいずれも `.gitignore` 済みで、リポジトリには含まれていない。
 - `generateAdvice` は `proc` で `claude` CLI を起動しており（シェル経由ではない）、コマンドインジェクションの余地はない。プロンプト内容は DB 由来（タグの自由入力名・コメントもユーザー本人の入力）。

@@ -85,6 +85,15 @@ updateSyncLog metric lastDay = do
         "INSERT OR REPLACE INTO sync_log (metric, last_synced_day, last_synced_at) VALUES (?, ?, ?)"
         [toPersistValue (metricName metric), toPersistValue lastDay, toPersistValue now]
 
+-- | When each metric was last written by a sync, in metric order. Every sync
+-- path records its run here in the same transaction as its rows, so this
+-- changes whenever the synced tables do and fingerprints derived results
+-- (see 'getMonthlyMeans') cheaply, across processes as well.
+getSyncStamps :: (MonadIO m) => ReaderT SqlBackend m [(Text, Maybe Text)]
+getSyncStamps = do
+    rows <- rawSql "SELECT metric, last_synced_at FROM sync_log ORDER BY metric" []
+    return [ (m, at) | (Single m, Single at) <- rows ]
+
 -- get_last_synced_day
 getLastSyncedDay :: (MonadIO m) => Metric -> ReaderT SqlBackend m (Maybe DayText)
 getLastSyncedDay metric = do

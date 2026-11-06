@@ -144,6 +144,23 @@ spec = do
                 >> addGetParam "start" "2024-01-01" >> addGetParam "end" "2024-02-31"
             statusIs 400
 
+    describe "monthly" $ withApp $ do
+        -- The means are cached under the sync_log stamps, so a row written
+        -- without a sync (as only a test does) stays hidden until one runs.
+        it "reuses the means until a sync is logged" $ do
+            login
+            insertMetric "sleep" "2024-01-10" (Just 80) "{}"
+            insertSyncLog "sleep" "2024-01-10T00:00:00+00:00"
+            get MonthlyR
+            statusIs 200
+            bodyContains "\"mean\":80"
+            insertMetric "sleep" "2024-01-11" (Just 60) "{}"
+            get MonthlyR
+            bodyContains "\"mean\":80"
+            insertSyncLog "sleep" "2024-01-11T00:00:00+00:00"
+            get MonthlyR
+            bodyContains "\"mean\":70"
+
     describe "heartrate" $ withApp $ do
         it "returns heartrate rows" $ do
             login
@@ -359,6 +376,11 @@ insertAdvice :: Text -> Text -> Text -> Text -> YesodExample App ()
 insertAdvice savedAt ps pe content = runDB $ rawExecute
     "INSERT INTO advice_history (saved_at, period_start, period_end, content) VALUES (?, ?, ?, ?)"
     [toPersistValue savedAt, toPersistValue ps, toPersistValue pe, toPersistValue content]
+
+insertSyncLog :: Text -> Text -> YesodExample App ()
+insertSyncLog metric syncedAt = runDB $ rawExecute
+    "INSERT OR REPLACE INTO sync_log (metric, last_synced_day, last_synced_at) VALUES (?, ?, ?)"
+    [toPersistValue metric, toPersistValue (take 10 syncedAt), toPersistValue syncedAt]
 
 insertMetric :: Text -> Text -> Maybe Double -> Text -> YesodExample App ()
 insertMetric metric day score dataJson = runDB $ rawExecute

@@ -46,6 +46,7 @@ import System.Log.FastLogger                (toLogStr)
 -- Don't forget to add new modules to your cabal file!
 import Advice (newAdviceJobs)
 import LoginThrottle (newLoginThrottle)
+import KeyedCache (newKeyedCache)
 import qualified Yesod.Core.Types as YT
 import Logging (newAppLog, newAppLoggerSet, newTimestamp)
 import Handler.Common
@@ -111,6 +112,9 @@ makeFoundation appSettings = do
 
     -- In-process record of failed logins per IP.
     appLoginThrottle <- newLoginThrottle
+
+    -- The long-term view's monthly means, reused until a sync writes again.
+    appMonthlyCache <- newKeyedCache
 
     -- We need a log function to create a connection pool. We need a connection
     -- pool to create our foundation. And we need our foundation to get a

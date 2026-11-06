@@ -19,6 +19,7 @@ import Json (jsonArray, jsonText, jsonLookup)
 import Metric (Metric (..), dailyMetricName, dashboardMetrics,
                metricName, parseDailyMetric, seriesMetrics)
 import qualified Db
+import KeyedCache (cachedFor)
 import qualified Sync
 import Oura (realClient)
 
@@ -73,9 +74,16 @@ getMetricR name = do
     returnJson rows
 
 -- | The monthly means over every stored day, for the long-term view. Unlike
--- the other reads it takes no range: its point is the whole history.
+-- the other reads it takes no range: its point is the whole history. That
+-- makes it the slowest read, so the result is reused until a sync (from here
+-- or from cron) changes the sync_log stamps. Stamps and means are read in one
+-- transaction, so a cached value always matches the key it is stored under.
 getMonthlyR :: Handler Value
-getMonthlyR = returnJson =<< runDB Db.getMonthlyMeans
+getMonthlyR = do
+    cache <- getsYesod appMonthlyCache
+    returnJson =<< runDB (do
+        stamps <- Db.getSyncStamps
+        cachedFor cache stamps Db.getMonthlyMeans)
 
 -- Heartrate --------------------------------------------------------------
 

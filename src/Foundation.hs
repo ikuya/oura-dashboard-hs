@@ -25,6 +25,7 @@ import Oura                 (OuraClient)
 import Advice               (AdviceJobs)
 import LoginThrottle        (LoginThrottle)
 import Logging              (AppLog)
+import KeyedCache           (KeyedCache)
 import qualified Yesod.Core.Unsafe as Unsafe
 
 -- | The foundation datatype for your application. This can be a good place to
@@ -53,6 +54,9 @@ data App = App
       -- Oura client's IO fetches and the forked advice worker.
     , appLoginThrottle :: LoginThrottle
       -- ^ Recent failed logins per IP, for brute-force protection.
+    , appMonthlyCache :: KeyedCache [(Text, Maybe Text)] (Map Text [A.Value])
+      -- ^ The last /api/monthly result, keyed by the sync_log stamps it was
+      -- read under ('Db.getSyncStamps'), since it scans the whole history.
     }
 
 -- This is where we define all of the routes in our application. For a full
