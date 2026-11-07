@@ -20,6 +20,9 @@ import Yesod.Core.Types     (Logger)
 import System.Log.FastLogger (LoggerSet)
 import Control.Monad.Logger (LogSource)
 import Crypto.BCrypt        (validatePassword)
+import Crypto.Hash.Algorithms (SHA256)
+import qualified Crypto.KDF.HKDF as HKDF
+import qualified Web.ClientSession as CS
 import qualified Data.Aeson as A
 import Oura                 (OuraClient)
 import Advice               (AdviceJobs)
@@ -91,14 +94,17 @@ instance Yesod App where
             Nothing -> getApprootText guessApproot app req
             Just root -> root
 
-    -- Store session data on the client in encrypted cookies,
-    -- session idle timeout is 7 days (personal use). SameSite=Lax keeps the
-    -- cookie off cross-site POSTs; Secure is opt-in until the site has HTTPS.
+    -- Store session data on the client in encrypted cookies, keyed from
+    -- SECRET_KEY (see 'sessionKey'); session idle timeout is 7 days (personal
+    -- use). SameSite=Lax keeps the cookie off cross-site POSTs; Secure is
+    -- opt-in until the site has HTTPS.
     makeSessionBackend :: App -> IO (Maybe SessionBackend)
-    makeSessionBackend app = secureOnly $ laxSameSiteSessions $
-        Just <$> defaultClientSessionBackend
-            (7 * 24 * 60)    -- timeout in minutes (7 days)
-            "config/client_session_key.aes"
+    makeSessionBackend app = secureOnly $ laxSameSiteSessions $ do
+        key <- either (throwString . ("session key: " <>)) return
+                   (sessionKey $ appSecretKey $ appSettings app)
+        (getCachedDate, _closeDateCacher) <-
+            clientSessionDateCacher (7 * 24 * 60 * 60)    -- 7 days
+        return $ Just $ clientSessionBackend key getCachedDate
       where
         secureOnly | appSecureCookies (appSettings app) = sslOnlySessions
                    | otherwise                          = id
@@ -231,6 +237,16 @@ routeAccess route = case route of
     AdviceEntryR _   -> Api
     AdviceR          -> Api
     AdviceJobR _     -> Api
+
+-- | The cookie encryption key, derived from SECRET_KEY with HKDF-SHA256 so
+-- that a secret of any length fills the 96 bytes clientsession wants (its
+-- AES and MAC keys). Changing SECRET_KEY therefore signs everyone out.
+sessionKey :: Text -> Either String CS.Key
+sessionKey secret = CS.initKey $ HKDF.expand prk info 96
+  where
+    prk  = HKDF.extract salt (encodeUtf8 secret) :: HKDF.PRK SHA256
+    salt = "oura-dashboard-hs" :: ByteString
+    info = "clientsession key" :: ByteString
 
 -- | Validate a plaintext password against the configured bcrypt hash.
 checkPassword :: Text -> Handler Bool

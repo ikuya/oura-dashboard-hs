@@ -30,6 +30,7 @@ import Import
 import Language.Haskell.TH.Syntax           (qLocation)
 import Network.HTTP.Client.TLS              (getGlobalManager)
 import Network.Wai (Middleware)
+import Network.Wai.Middleware.AddHeaders    (addHeaders)
 import WaiAppStatic.Types                   (MaxAge (NoCache), ssMaxAge)
 import Yesod.Static                         (Static (..))
 import Network.Wai.Handler.Warp             (Settings, defaultSettings,
@@ -81,7 +82,7 @@ revalidating (Static settings) = Static settings { ssMaxAge = NoCache }
 -- migrations handled by Yesod.
 makeFoundation :: AppSettings -> IO App
 makeFoundation appSettings = do
-    -- SECRET_KEY is mandatory (mirrors the Python app raising at startup).
+    -- SECRET_KEY is mandatory: the session cookie key is derived from it.
     when (null $ appSecretKey appSettings) $
         error "SECRET_KEY environment variable is not set"
 
@@ -146,7 +147,29 @@ makeApplication foundation = do
     logWare <- makeLogWare foundation
     -- Create the WAI application and apply middlewares
     appPlain <- toWaiAppPlain foundation
-    return $ logWare $ defaultMiddlewaresNoLogging appPlain
+    return $ logWare $ securityHeaders $ defaultMiddlewaresNoLogging appPlain
+
+-- | Browser hardening headers on every response, static files included.
+--
+-- The CSP allows scripts only from this origin, so no inline script or
+-- on* attribute may appear in index.html or the templates; inline styles stay
+-- allowed because the login page and index.html carry them. The page may not
+-- be framed (clickjacking on the login form).
+securityHeaders :: Middleware
+securityHeaders = addHeaders
+    [ ("Content-Security-Policy", intercalate "; "
+        [ "default-src 'self'"
+        , "script-src 'self'"
+        , "style-src 'self' 'unsafe-inline'"
+        , "img-src 'self' data: blob:"
+        , "object-src 'none'"
+        , "base-uri 'none'"
+        , "form-action 'self'"
+        , "frame-ancestors 'none'" ])
+    , ("X-Frame-Options", "DENY")
+    , ("X-Content-Type-Options", "nosniff")
+    , ("Referrer-Policy", "same-origin")
+    ]
 
 makeLogWare :: App -> IO Middleware
 makeLogWare foundation =

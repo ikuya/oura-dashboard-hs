@@ -9,8 +9,10 @@ versions. Each file is the unmodified build from the npm package tarball.
 | `luxon-3.7.2.min.js` | `luxon@3.7.2` | `build/global/luxon.min.js` |
 | `chartjs-adapter-luxon-1.3.1.umd.min.js` | `chartjs-adapter-luxon@1.3.1` | `dist/chartjs-adapter-luxon.umd.min.js` |
 | `marked-12.0.2.min.js` | `marked@12.0.2` | `marked.min.js` |
+| `purify-3.2.6.min.js` | `dompurify@3.2.6` | `dist/purify.min.js` |
 
-All are MIT licensed; the license texts are in `licenses/`.
+All are MIT licensed except DOMPurify (Apache-2.0 or MPL-2.0, at the user's
+choice); the license texts are in `licenses/`.
 
 To upgrade, download the new tarball (`https://registry.npmjs.org/<pkg>/-/<pkg>-<ver>.tgz`),
 copy the file above under the new versioned name, delete the old one, and update

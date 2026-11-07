@@ -9,11 +9,12 @@
   <script src="/static/vendor/luxon-3.7.2.min.js"></script>
   <script src="/static/vendor/chartjs-adapter-luxon-1.3.1.umd.min.js"></script>
   <script src="/static/vendor/marked-12.0.2.min.js"></script>
+  <script src="/static/vendor/purify-3.2.6.min.js"></script>
 </head>
 <body>
 <div class="app">
   <header>
-    <h1 style="cursor:pointer;" onclick="location.reload()">Oura Dashboard</h1>
+    <h1 id="app-title" style="cursor:pointer;">Oura Dashboard</h1>
     <div class="range-btns">
       <button data-days="7">7d</button>
       <button data-days="14">14d</button>

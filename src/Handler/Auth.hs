@@ -18,7 +18,7 @@ import qualified Network.Wai as W
 import Network.Wai.Logger (showSockAddr)
 import Text.Hamlet (hamletFile)
 
-import LoginThrottle (checkBlocked, noteFailure, noteSuccess)
+import LoginThrottle (beginAttempt, noteSuccess)
 
 getLoginR :: Handler Html
 getLoginR = do
@@ -28,14 +28,15 @@ getLoginR = do
 
 postLoginR :: Handler Html
 postLoginR = do
-    throttle <- getsYesod appLoginThrottle
-    ip <- clientIp
-    blocked <- liftIO $ checkBlocked throttle ip
-    when blocked $ do
-        $logWarn $ "Login refused, too many failures from " <> ip
-        refuse status429 "Too many attempts. Try again later."
     stored <- getsYesod (appPassword . appSettings)
     when (null stored) $ refuse status500 "Password is not configured."
+    throttle <- getsYesod appLoginThrottle
+    ip <- clientIp
+    -- Counts as a failure from here on; a success clears it below.
+    admitted <- liftIO $ beginAttempt throttle ip
+    unless admitted $ do
+        $logWarn $ "Login refused, too many failures from " <> ip
+        refuse status429 "Too many attempts. Try again later."
     ok <- checkPassword . fromMaybe "" =<< lookupPostParam "password"
     if ok
         then do
@@ -43,7 +44,6 @@ postLoginR = do
             setSession sessionAuthKey "1"
             redirect HomeR
         else do
-            liftIO $ noteFailure throttle ip
             $logWarn $ "Failed login from " <> ip
             refuse status401 "Invalid password"
   where

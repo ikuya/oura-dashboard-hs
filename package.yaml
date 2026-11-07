@@ -47,6 +47,8 @@ dependencies:
 - foreign-store
 - dotenv
 - bcrypt
+- clientsession
+- crypton
 - http-types
 - aeson-pretty
 - uuid

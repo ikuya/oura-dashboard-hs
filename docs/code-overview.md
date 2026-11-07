@@ -329,6 +329,6 @@ Oura の心拍 API はタイムスタンプを UTC（`...Z`）で返し、`Db.up
 
 - `/api/monthly` の月平均は `sync_log` の更新時刻をキーにキャッシュしており、2 回目以降は全履歴を走査しない。ただし同期以外の手段（手作業の SQL、バックアップからの復元など）で DB を書き換えた場合は `sync_log` が変わらないため、Web サーバを再起動するまで古い値が返る。
 
-- `oura.db` / `*.sqlite3` / `config/client_session_key.aes` / `.env` / `backup/` はいずれも `.gitignore` 済みで、リポジトリには含まれていない。
+- `oura.db` / `*.sqlite3` / `.env` / `backup/` はいずれも `.gitignore` 済みで、リポジトリには含まれていない。
 - `generateAdvice` は `proc` で `claude` CLI を起動しており（シェル経由ではない）、コマンドインジェクションの余地はない。プロンプト内容は DB 由来（タグの自由入力名・コメントもユーザー本人の入力）。
 - バックアップの `VACUUM INTO ?` はパスをプレースホルダで渡しており、ディレクトリ名に記号が含まれても SQL として解釈されない。

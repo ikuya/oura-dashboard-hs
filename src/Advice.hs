@@ -416,10 +416,15 @@ generateTimeout = 120
 
 -- | Run the claude CLI on a prompt: the report, or why it could not be had.
 -- Shared by the web's advice jobs and the scheduled CLI.
+--
+-- The report needs no tools, and the prompt carries free text from the Oura
+-- app (tag names and comments), so every built-in tool is disabled and no MCP
+-- server is loaded: injected instructions have nothing to act through.
 generateAdvice :: Text -> IO (Either AdviceError Text)
 generateAdvice prompt = do
     let cp = proc "claude"
             [ "-p", unpack prompt, "--max-turns", "1", "--model", "opus"
+            , "--tools", "", "--strict-mcp-config"
             , "--append-system-prompt", appendSystemPrompt ]
     result <- try (timeout (generateTimeout * 1000000) (readCreateProcessWithExitCode cp ""))
     return $ case result of

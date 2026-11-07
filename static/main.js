@@ -129,6 +129,10 @@ async function loadMonthly() {
   renderMonthly(state.monthly, state);
 }
 
+// --- Title ---
+// Wired here rather than with an onclick attribute, which the CSP forbids.
+document.getElementById("app-title").addEventListener("click", () => location.reload());
+
 // --- Sync button ---
 document.getElementById("sync-btn").addEventListener("click", async () => {
   const btn = document.getElementById("sync-btn");
@@ -510,6 +514,12 @@ function showError(el, message) {
   el.replaceChildren(p);
 }
 
+// The advice is model output, and marked passes raw HTML through, so the
+// rendered markup is sanitized before it reaches the DOM.
+function renderMarkdown(el, markdown) {
+  el.innerHTML = DOMPurify.sanitize(marked.parse(markdown));
+}
+
 // --- Advice button ---
 (function () {
   const adviceBtn = document.getElementById("advice-btn");
@@ -623,7 +633,7 @@ function showError(el, message) {
       }
       renderAdviceComparison(comparisonEl, data.comparison);
       sharedAdviceRaw = data.advice || "";
-      contentEl.innerHTML = marked.parse(sharedAdviceRaw);
+      renderMarkdown(contentEl, sharedAdviceRaw);
       copyBtn.disabled = false;
       if (typeof refreshAdviceCalendar === "function") refreshAdviceCalendar();
     } catch (e) {
@@ -753,7 +763,7 @@ function showError(el, message) {
       renderVersions(isoDate, data.saved_ats, data.saved_at);
       renderAdviceComparison(comparisonEl, data.comparison);
       sharedAdviceRaw = data.advice || "";
-      contentEl.innerHTML = marked.parse(sharedAdviceRaw);
+      renderMarkdown(contentEl, sharedAdviceRaw);
       copyBtn.disabled = false;
     } catch (e) {
       showError(contentEl, t("error.network", { message: e.message }));

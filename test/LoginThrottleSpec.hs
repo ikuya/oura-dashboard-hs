@@ -43,3 +43,10 @@ spec = describe "LoginThrottle" $ do
     it "drops expired IPs when recording" $
         length (recordFailure (addUTCTime (failureWindow + 10) t0) "5.6.7.8"
                               (failures maxFailures "1.2.3.4")) `shouldBe` 1
+
+    it "admits an IP below the threshold and counts the attempt" $
+        (admit later "1.2.3.4" (failures (maxFailures - 1) "1.2.3.4")
+            >>= fmap length . lookup "1.2.3.4") `shouldBe` Just maxFailures
+
+    it "refuses an IP at the threshold" $
+        isNothing (admit later "1.2.3.4" (failures maxFailures "1.2.3.4")) `shouldBe` True
