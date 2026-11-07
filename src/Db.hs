@@ -2,13 +2,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts  #-}
 
--- | Database layer, ported from the Python app's db.py.
+-- | Database layer.
 --
 -- Query functions that merge the opaque @data_json@ blob with the @day@/@score@
--- columns return aeson 'Value's (matching the Python dicts), so the JSON API
--- contract stays byte-compatible. Raw SQL is used where the Python code relies
--- on @INSERT OR REPLACE@, @INSERT OR IGNORE@, @substr()@ or @GROUP BY@, keeping
--- those queries 1:1 with the original.
+-- columns return aeson 'Value's, so the JSON API passes the stored documents
+-- through unchanged. Raw SQL is used where a query relies on
+-- @INSERT OR REPLACE@, @INSERT OR IGNORE@, @substr()@ or @GROUP BY@.
 module Db where
 
 import ClassyPrelude.Yesod
@@ -23,8 +22,7 @@ import DateText
 import Json                       (jsonDouble, jsonInt, jsonLookup, jsonText)
 import Metric
 
--- | Current UTC time as an ISO-8601 string, matching Python's
--- @datetime.now(timezone.utc).isoformat()@ which yields e.g.
+-- | Current UTC time as an ISO-8601 string, e.g.
 -- @2026-04-12T04:00:26.448555+00:00@ (microseconds, +00:00 offset).
 nowIso :: MonadIO m => m Text
 nowIso = formatUtc <$> liftIO getCurrentTime
@@ -39,14 +37,12 @@ parseDataJson t = case A.decodeStrict (encodeUtf8 t) of
     _                 -> KM.empty
 
 -- | Merge day/score onto the parsed data_json object. The DB @score@ column
--- takes precedence over any @score@ inside data_json (mirrors db.py's
--- @{**data, "day": ..., "score": ...}@).
+-- takes precedence over any @score@ inside data_json.
 mergeRow :: DayText -> Maybe Double -> A.Object -> A.Value
 mergeRow day mscore o =
     A.Object $ KM.insert "score" (maybe A.Null A.toJSON mscore)
              $ KM.insert "day" (A.toJSON day) o
 
--- upsert_daily_metric
 upsertDailyMetric
     :: (MonadIO m)
     => DailyMetric -> DayText -> Maybe Double -> A.Value -> ReaderT SqlBackend m ()
@@ -62,8 +58,8 @@ upsertDailyMetric metric day score dataObj = do
         , toPersistValue now
         ]
 
--- upsert_heartrate_batch: skips records missing timestamp or bpm; day = ts[:10].
--- Returns the number of records processed (matching Python's count).
+-- | Skips records missing timestamp or bpm; day is the timestamp's date part.
+-- Returns the number of records processed.
 upsertHeartrateBatch
     :: (MonadIO m) => [(Text, Maybe Int)] -> ReaderT SqlBackend m Int
 upsertHeartrateBatch records = do
@@ -77,7 +73,6 @@ upsertHeartrateBatch records = do
             ]
     return (length valid)
 
--- update_sync_log
 updateSyncLog :: (MonadIO m) => Metric -> DayText -> ReaderT SqlBackend m ()
 updateSyncLog metric lastDay = do
     now <- nowIso
@@ -94,7 +89,6 @@ getSyncStamps = do
     rows <- rawSql "SELECT metric, last_synced_at FROM sync_log ORDER BY metric" []
     return [ (m, at) | (Single m, Single at) <- rows ]
 
--- get_last_synced_day
 getLastSyncedDay :: (MonadIO m) => Metric -> ReaderT SqlBackend m (Maybe DayText)
 getLastSyncedDay metric = do
     rows <- rawSql
@@ -102,7 +96,6 @@ getLastSyncedDay metric = do
         [toPersistValue (metricName metric)]
     return $ unSingle <$> headMay rows
 
--- get_daily_metrics
 getDailyMetrics
     :: (MonadIO m) => DailyMetric -> DateRange -> ReaderT SqlBackend m [A.Value]
 getDailyMetrics metric (DateRange start end) = do
@@ -112,7 +105,6 @@ getDailyMetrics metric (DateRange start end) = do
     return [ mergeRow day score (parseDataJson dj)
            | (Single day, Single score, Single dj) <- rows ]
 
--- get_daily_metrics_bulk
 getDailyMetricsBulk
     :: (MonadIO m)
     => [DailyMetric] -> DateRange
@@ -136,7 +128,6 @@ getDailyMetricsBulk metrics (DateRange start end)
                 , Just metric <- [parseDailyMetric name] ]
         return $ M.union byMetric (M.fromList [ (m, []) | m <- metrics ])
 
--- get_heartrate
 getHeartrate
     :: (MonadIO m) => DateRange -> ReaderT SqlBackend m [A.Value]
 getHeartrate (DateRange start end) = do
@@ -366,7 +357,6 @@ mainSleepPeriods = do
             [ (day, [A.Object (parseDataJson p)]) | (Single day, Single p) <- rows ]
     return [ (day, p) | (day, ps) <- M.toList byDay, Just p <- [mainSleepPeriod ps] ]
 
--- save_advice
 saveAdvice
     :: (MonadIO m) => DayText -> DayText -> Text -> ReaderT SqlBackend m ()
 saveAdvice periodStart periodEnd content = do
@@ -379,7 +369,6 @@ saveAdvice periodStart periodEnd content = do
         , toPersistValue content
         ]
 
--- get_advice_dates
 getAdviceDates :: (MonadIO m) => ReaderT SqlBackend m [A.Value]
 getAdviceDates = do
     rows <- rawSql
@@ -439,7 +428,6 @@ getScoreAverages metrics (DateRange start end) = do
     return $ M.fromList
         [ (m, avg) | (Single name, Single avg) <- rows, Just m <- [parseDailyMetric name] ]
 
--- get_sync_status
 getSyncStatus :: (MonadIO m) => ReaderT SqlBackend m A.Value
 getSyncStatus = do
     entries <- forM syncStatusMetrics $ \metric -> do

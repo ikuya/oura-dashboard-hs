@@ -4,8 +4,8 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies      #-}
 
--- | JSON API handlers ported from app.py (metrics, heartrate, sync).
--- Advice handlers live in Handler.Advice (Phase 5).
+-- | JSON API handlers (metrics, heartrate, sync).
+-- Advice handlers live in Handler.Advice.
 module Handler.Api where
 
 import Import
@@ -144,7 +144,7 @@ postSyncR = do
     result <- runDB $ Sync.runSync today client requestedStart (Just requestedEnd) requestedMetrics 0
     sendStatusJSON status202 (syncResultToJson result)
 
--- | Convert SyncResult to the app.py {"synced": {...}, "errors": {...}} shape.
+-- | Convert SyncResult to the {"synced": {...}, "errors": {...}} response shape.
 syncResultToJson :: Sync.SyncResult -> Value
 syncResultToJson r = A.object
     [ "synced" A..= M.mapKeys metricName (Sync.syncedCounts r)

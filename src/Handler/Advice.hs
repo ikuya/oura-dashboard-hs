@@ -3,7 +3,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies      #-}
 
--- | Advice endpoints, ported from app.py.
+-- | Advice endpoints.
 -- /api/advice/<seg> is served by getAdviceJobR, which treats seg == "history"
 -- as the history-list endpoint and anything else as a job id.
 module Handler.Advice where

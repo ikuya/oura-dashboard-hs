@@ -4,11 +4,10 @@
 
 -- | The metrics the dashboard tracks.
 --
--- The Python port carried these as bare strings and dispatched on them with
--- @==@ throughout the sync, DB and handler layers. As a type, the compiler
--- checks that every dispatch table is total, the wire names live in one place,
--- and the "heartrate is not a daily metric" distinction the code kept making
--- by hand is in the type instead.
+-- A type rather than bare strings compared with @==@ across the sync, DB and
+-- handler layers: the compiler checks that every dispatch table is total, the
+-- wire names live in one place, and "heartrate is not a daily metric" is in
+-- the type rather than checked by hand.
 module Metric
     ( DailyMetric (..)
     , EventKind (..)
@@ -39,7 +38,7 @@ data DailyMetric
     | Temperature
       -- ^ Derived from the readiness payload; never fetched on its own.
     | VO2Max
-      -- ^ Reported by @get_sync_status@, but the sync never fetches it.
+      -- ^ Reported by @getSyncStatus@, but the sync never fetches it.
     deriving (Eq, Ord, Show, Enum, Bounded)
 
 -- | The user's own records of a day: tags (alcohol, caffeine, ...), workouts
@@ -95,7 +94,7 @@ parseDailyMetric :: Text -> Maybe DailyMetric
 parseDailyMetric name =
     lookup name [ (dailyMetricName m, m) | m <- allDailyMetrics ]
 
--- | Every daily metric, in the order the Python lists used.
+-- | Every daily metric, in display order.
 allDailyMetrics :: [DailyMetric]
 allDailyMetrics = [minBound .. maxBound]
 
@@ -111,7 +110,7 @@ syncTargets =
     map Daily (filter (`notElem` [Temperature, VO2Max]) allDailyMetrics)
         ++ seriesMetrics
 
--- | The metrics @get_sync_status@ reports on.
+-- | The metrics @Db.getSyncStatus@ reports on.
 syncStatusMetrics :: [Metric]
 syncStatusMetrics = map Daily allDailyMetrics ++ seriesMetrics
 

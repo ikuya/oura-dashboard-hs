@@ -4,12 +4,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase          #-}
 
--- | Oura Ring API v2 client, ported from oura_client.py.
+-- | Oura Ring API v2 client.
 --
--- The client is a record of fetch functions so tests can substitute stubs
--- (mirroring the MagicMock used in test_sync.py). 'realClient' provides the
--- http-conduit implementation with next_token pagination, a 15s timeout, and
--- the same error handling as the Python client.
+-- The client is a record of fetch functions so tests can substitute stubs.
+-- 'realClient' provides the http-conduit implementation with next_token
+-- pagination, a 15s timeout, and HTTP/transport errors raised as 'OuraError'.
 module Oura
     ( OuraClient (..)
     , OuraError (..)
@@ -28,8 +27,8 @@ import Json                        (jsonArray, jsonText, jsonLookup)
 import Logging                     (AppLog (..))
 import Metric                      (EventKind (..))
 
--- | Error raised by the Oura client. Mirrors oura_client.OuraAPIError:
--- carries an optional HTTP status code and a message.
+-- | Error raised by the Oura client: an optional HTTP status code and a
+-- message.
 data OuraError = OuraError
     { ouraErrorStatus  :: Maybe Int
     , ouraErrorMessage :: Text
@@ -121,8 +120,8 @@ realClient appLog token = OuraClient
                     (responseTimeoutMicro apiTimeoutMicros)
                 $ req0
         -- httpJSON returns non-2xx responses normally; only transport/JSON
-        -- failures throw. Check status ourselves and raise OuraError to match
-        -- the Python client's raise_for_status + RequestException handling.
+        -- failures throw. Check the status ourselves and turn both kinds of
+        -- failure into an OuraError.
         eresp <- try (httpJSON req)
         case eresp of
             Left (e :: HttpException) -> do
@@ -145,7 +144,8 @@ realClient appLog token = OuraClient
                   else base
         in OuraError (Just status) msg
 
--- | @date_to_datetime_str@ from the Python client.
+-- | A day as the API's datetime parameter: its start, or its end when
+-- @endOfDay@.
 dateToDatetime :: DayText -> Bool -> Text
 dateToDatetime (DayText dateStr) endOfDay =
     dateStr <> "T" <> (if endOfDay then "23:59:59" else "00:00:00")

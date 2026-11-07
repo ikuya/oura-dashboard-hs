@@ -6,8 +6,6 @@
 
 Oura Ring が計測した生体データ（睡眠・準備度・活動量・ストレス・SpO2・体温・心拍・レジリエンス・VO2 Max・心血管年齢）と、ユーザー自身の記録（タグ・ワークアウト・セッション）を、Oura API v2 からローカルの SQLite に取り込み、Chart.js 製の静的フロントエンドに JSON API で配信する、**ローカル完結型の Yesod (Haskell) Web アプリ**です。
 
-Python/Flask 版 `oura-dashboard` からの移植で、**Python 版から引き継いだ JSON API はバイト単位で互換**に保たれています。その上で、睡眠段階（`/api/sleep_periods`）・月平均（`/api/monthly`）・タグ等のイベント（`/api/events`）の各 API は Haskell 版で追加したもので、`static/` 配下のフロントエンドもこれらを使う形で Python 版から大きく拡張されています。
-
 加えて、`claude` CLI を子プロセスとして起動し、直近 14 日分のデータから日本語または英語のヘルスアドバイスを生成する機能を持ちます。Web からの非同期ジョブと、cron から定期実行する CLI（`oura-advice`）の 2 経路があり、どちらも直前のアドバイスを踏まえて「前回からの変化」を書かせます。cron の日次同期（`oura-daily-sync`）は同期後に DB のバックアップも取ります。
 
 ### たとえるなら
@@ -27,7 +25,7 @@ Python/Flask 版 `oura-dashboard` からの移植で、**Python 版から引き�
 | ファイル | 行数 | 役割 |
 |---|---|---|
 | `src/Oura.hs` | 151 | Oura API v2 クライアント。**fetch 関数を持つレコード型** (`OuraClient`) にすることで、テスト時にスタブへ差し替え可能。next_token ページネーション、15 秒タイムアウト、HTTP ステータスと例外を `OuraError` に正規化 |
-| `src/Db.hs` | 469 | SQLite クエリ層。既存 Python スキーマとの 1:1 互換を保つため raw SQL 中心（`INSERT OR REPLACE` / `INSERT OR IGNORE`、`substr`、`json_extract`、`GROUP BY`）。イベントの置き換え保存、月平均の集計もここ。export リストなしで `module Db where` |
+| `src/Db.hs` | 469 | SQLite クエリ層。raw SQL 中心（`INSERT OR REPLACE` / `INSERT OR IGNORE`、`substr`、`json_extract`、`GROUP BY`）。イベントの置き換え保存、月平均の集計もここ。export リストなしで `module Db where` |
 | `src/Sync.hs` | 364 | 増分同期の中核。`findMissingRange` / `backfillRanges` / `runSync`。心拍のみ 30 日窓で逆方向にループ |
 | `src/Advice.hs` | 494 | アドバイス生成。ペイロード構築・プロンプト・`claude` CLI 実行（`generateAdvice`、120 秒タイムアウト）と、TVar 上のインメモリ Map + `forkIO` ワーカーによる Web 用ジョブ |
 | `src/Language.hs` | 44 | アドバイスの出力言語 `Language`（`Ja`/`En`）。`parseLanguage` は `en-US` のような地域付きコードも受け付ける。Yesod の `Lang`（`Text` の別名）と衝突しないようこの名前 |
@@ -234,8 +232,8 @@ flowchart LR
 ### ドメイン層
 
 - **`Oura.hs`** — `OuraClient` は日次メトリックごとの `DateRange -> IO [Value]` フィールドに加え、`getHeartrate`/`getSleepPeriods`/`getEvents :: EventKind -> DateRange -> IO [Value]` を持つレコード。`realClient` が http-conduit で実装し、`next_token` を追って全ページを結合する。イベント系エンドポイント（`enhanced_tag`/`workout`/`session`）は `end_date` を排他的に扱う（1 日範囲だと空が返る）ため、終了日の翌日を渡している。非 2xx や通信失敗は `OuraError` として投げ、`Sync.tryOura` が捕捉する。テストではこのレコードをスタブに差し替える。
-- **`Db.hs`** — Python 版 `db.py` の raw SQL を 1:1 移植した部分に、Haskell 版の追加分が乗っている。
-  - `mergeRow` が `data_json` に `day`/`score` を上書きマージする（DB の `score` 列が優先、Python の `{**data, "day":..., "score":...}` と同じ）。`getDailyMetricsBulk` は `M.fromListWith (flip (++))` で (metric, day) 順の行を集約。
+- **`Db.hs`** — raw SQL によるクエリ層。
+  - `mergeRow` が `data_json` に `day`/`score` を上書きマージする（DB の `score` 列が優先）。`getDailyMetricsBulk` は `M.fromListWith (flip (++))` で (metric, day) 順の行を集約。
   - `mainSleepPeriod`（その日の本睡眠の選択：`long_sleep` 優先、なければ `late_nap` を除いた中で就床時間最長。`static/helpers.js` の `mainPeriod` と同じ規則）は、月平均でも使うため `Advice` からここへ移った。
   - **イベント**：`replaceEvents` は範囲内の同種イベントを `DELETE` してから `INSERT OR REPLACE` する。Oura アプリでタグを消すと次の取得結果から単に消えるだけなので、upsert だけでは残り続けてしまうため。`getEvents` は範囲に掛かるもの（タグは `start_day`〜`end_day` のどこかが範囲に入れば対象）を開始順に返し、セッションの 5 秒間隔系列（`heart_rate` など）は落とす。`getAllEvents` が kind 名をキーにまとめる。
   - **アドバイス履歴**：`getAdviceDates` は保存日（`saved_at` の UTC 日付）ごとに最新 1 件を一覧用に返し、`getAdviceForDate` はその日に保存された全件を古い順に返す（同じ日にボタンを押し直しても前の分は上書きされない）。
@@ -295,7 +293,7 @@ Oura の心拍 API はタイムスタンプを UTC（`...Z`）で返し、`Db.up
 
 ### c) 中: アドバイスジョブが無制限に蓄積する
 
-`Advice.AdviceJobs`（`TVar (Map Text AdviceJob)`）から完了・失敗ジョブを回収する仕組みがない。長時間稼働でメモリが単調増加する（定期アドバイスはこの Map を使わないので影響しない）。Python 版も同じ構造だが、移植先で TTL 付き削除を入れられる。
+`Advice.AdviceJobs`（`TVar (Map Text AdviceJob)`）から完了・失敗ジョブを回収する仕組みがない。長時間稼働でメモリが単調増加する（定期アドバイスはこの Map を使わないので影響しない）。TTL 付き削除を入れれば解消できる。
 
 ### d) 低: `getDailyMetricsBulk` の集約が O(n²) になりうる
 

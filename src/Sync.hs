@@ -4,13 +4,12 @@
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE TemplateHaskell   #-}
 
--- | Incremental sync, ported from sync.py.
+-- | Incremental sync.
 --
--- "Today" is threaded explicitly (the Python code mocks sync._today_str), and
+-- "Today" is threaded explicitly so tests can fix it, and
 -- the Oura client is the 'OuraClient' record so tests can inject stubs.
 -- Client fetches run in IO and are lifted into the DB action; per-metric
--- OuraError is caught and recorded in the result rather than propagated
--- (matching run_sync's behaviour).
+-- OuraError is caught and recorded in the result rather than propagated.
 module Sync
     ( defaultStart
     , refetchDays
@@ -54,11 +53,10 @@ resilienceLevelOrder =
     [ ("limited", 1), ("adequate", 2), ("solid", 3)
     , ("strong", 4), ("exceptional", 5) ]
 
--- _extract_score ---------------------------------------------------------
+-- extractScore -----------------------------------------------------------
 
 -- | Extract the scalar score for a metric from a raw API record. Returns a
--- JSON Value (Number/Null) mirroring the Python return, and 'Nothing' when the
--- Python code returns None.
+-- JSON Value (Number/Null), or 'Nothing' when the metric has no score.
 extractScore :: DailyMetric -> Value -> Maybe Value
 extractScore metric record = case metric of
     Sleep       -> jsonLookup "score" record
@@ -79,7 +77,7 @@ extractScore metric record = case metric of
 recordDay :: Value -> Maybe DayText
 recordDay r = DayText <$> (jsonText =<< jsonLookup "day" r)
 
--- find_missing_range -----------------------------------------------------
+-- findMissingRange -------------------------------------------------------
 
 -- | Return the (start, end) range to fetch, or Nothing if already synced.
 findMissingRange
@@ -101,7 +99,7 @@ findMissingRange today metric requestedEnd = do
                         then Nothing
                         else Just (DateRange fetchStart end)
 
--- sync_daily_metric ------------------------------------------------------
+-- syncDailyMetric --------------------------------------------------------
 
 -- | Fetch and upsert daily metric records. Returns rows written. When syncing
 -- readiness, also derives and stores the temperature metric.
@@ -138,7 +136,7 @@ syncDailyMetric client metric range@(DateRange start end) = do
 
 -- | The client call that fetches a daily metric. 'Nothing' for the two the
 -- sync never fetches: temperature is derived from readiness, and vO2 max is
--- only reported by get_sync_status.
+-- only reported by Db.getSyncStatus.
 fetchFn :: OuraClient -> DailyMetric -> Maybe (DateRange -> IO [Value])
 fetchFn client = \case
     Sleep             -> Just (getDailySleep client)
@@ -182,7 +180,7 @@ syncEvents client kind range@(DateRange start end) = do
         <> ".." <> unDayText end <> ": " <> tshow count <> " rows")
     return count
 
--- _backfill_ranges -------------------------------------------------------
+-- backfillRanges ---------------------------------------------------------
 
 -- | Contiguous date ranges needed to fill gaps in the backfill window.
 -- The series always return the whole window. Daily metrics treat days with
@@ -221,7 +219,7 @@ collectGaps isMissing = mapMaybe gapRange . groupBy ((==) `on` isMissing)
         (d:_) | isMissing d -> DateRange d <$> lastMay grp
         _                   -> Nothing
 
--- run_sync ---------------------------------------------------------------
+-- runSync ----------------------------------------------------------------
 
 data SyncResult = SyncResult
     { syncedCounts :: M.Map Metric Int
@@ -232,7 +230,7 @@ data SyncResult = SyncResult
 type RangeResult = (Int, Maybe Text)
 
 -- | Run an action over each range in turn, summing the rows written and
--- stopping at the first failure (the Python loop breaks likewise). Rows
+-- stopping at the first failure. Rows
 -- written before the failure are still reported.
 foldRanges :: (Monad m) => (DateRange -> m RangeResult) -> [DateRange] -> m RangeResult
 foldRanges run = go 0
@@ -244,7 +242,7 @@ foldRanges run = go 0
             Just err -> return (total + rows, Just err)
             Nothing  -> go (total + rows) rest
 
--- | A caught 'OuraError' contributes no rows, mirroring the Python handler.
+-- | A caught 'OuraError' contributes no rows.
 rangeResult :: Either Text Int -> RangeResult
 rangeResult (Left err)   = (0, Just err)
 rangeResult (Right rows) = (rows, Nothing)

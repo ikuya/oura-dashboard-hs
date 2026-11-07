@@ -211,8 +211,7 @@ getApplicationDev = do
 
 -- | Load @.env@ into the process environment before settings are parsed, so
 -- that @_env:@ references in @config/settings.yml@ pick them up. Missing @.env@
--- is not an error (env vars may be supplied directly). Mirrors the Python
--- app's @load_dotenv()@.
+-- is not an error (env vars may be supplied directly).
 loadDotEnv :: IO ()
 loadDotEnv = onMissingFile (void $ loadFile defaultConfig) (return ())
 

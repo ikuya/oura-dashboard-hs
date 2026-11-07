@@ -4,10 +4,6 @@ A local web dashboard for Oura Ring biometric data. Fetches data from
 the Oura Ring API v2 into a local SQLite database and serves a static
 frontend (Chart.js) over a JSON API.
 
-The endpoints ported from the Python/Flask original stay byte-compatible with
-it, so the `static/` frontend it shipped with keeps working against them. What
-has been added since — the sleep stage charts — is new on both sides.
-
 > 日本語版: [README_ja.md](README_ja.md)
 
 ## Features
@@ -321,9 +317,9 @@ stack test
 config/models.persistentmodels   Persistent models: the existing oura.db schema, plus sleep_periods and oura_events
 config/routes.yesodroutes         Route definitions
 config/settings.yml               Settings (secrets sourced from .env)
-src/Db.hs                         SQLite query/upsert layer (ported from db.py)
+src/Db.hs                         SQLite query/upsert layer
 src/Oura.hs                       Oura Ring API v2 client (record of fetch functions)
-src/Sync.hs                       Incremental sync logic (ported from sync.py)
+src/Sync.hs                       Incremental sync logic
 src/Advice.hs                     Advice job state + claude CLI worker
 src/Language.hs                   Languages an advice report can be written in
 src/DailySync.hs                  Daily sync CLI (cron)

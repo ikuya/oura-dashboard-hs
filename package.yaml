@@ -87,7 +87,7 @@ executables:
     - condition: flag(library-only)
       buildable: false
 
-  # Daily incremental sync CLI (cron), ported from daily_sync.py.
+  # Daily incremental sync CLI (cron).
   oura-daily-sync:
     main: main.hs
     source-dirs: app-daily-sync

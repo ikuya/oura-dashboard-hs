@@ -47,11 +47,9 @@ data App = App
       -- file; equal to the app's own logger set when ACCESS_LOG_FILE is unset.
     , appOuraClientOverride :: Maybe OuraClient
       -- ^ Test seam: when set, the sync handler uses this client instead of
-      -- building a real one from OURA_TOKEN (mirrors the Python test mocking
-      -- run_sync). 'Nothing' in production.
+      -- building a real one from OURA_TOKEN. 'Nothing' in production.
     , appAdviceJobs  :: AdviceJobs
-      -- ^ In-process advice job state (non-persistent, like Python's
-      -- Lock-guarded _advice_jobs dict).
+      -- ^ In-process advice job state (non-persistent).
     , appPlainLogger :: AppLog
       -- ^ Log destination for the code that runs outside 'MonadLogger': the
       -- Oura client's IO fetches and the forked advice worker.

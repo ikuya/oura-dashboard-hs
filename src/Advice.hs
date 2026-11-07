@@ -3,11 +3,11 @@
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- | Advice job logic, ported from app.py.
+-- | Advice job logic.
 --
--- Jobs live in an in-process 'TVar' map (mirroring the Lock-guarded _advice_jobs
--- dict) and run in a 'forkIO' worker that shells out to the @claude@ CLI. Jobs
--- are non-persistent: they vanish on restart, exactly like the Python app.
+-- Jobs live in an in-process 'TVar' map and run in a 'forkIO' worker that
+-- shells out to the @claude@ CLI. Jobs are non-persistent: they vanish on
+-- restart.
 module Advice
     ( AdviceJob (..)
     , JobStatus (..)

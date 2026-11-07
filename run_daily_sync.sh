@@ -1,7 +1,6 @@
 #!/bin/bash
-# Cron entry point for the daily incremental sync (ported from the Python
-# project's run_daily_sync.sh). Runs the built oura-daily-sync executable and
-# appends output to a log file.
+# Cron entry point for the daily incremental sync. Runs the built
+# oura-daily-sync executable and appends output to a log file.
 
 export PATH=$HOME/.ghcup/bin:$HOME/.local/bin:$PATH
 

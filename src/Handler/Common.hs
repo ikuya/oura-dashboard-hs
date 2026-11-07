@@ -23,7 +23,7 @@ getRobotsR = return $ TypedContent typePlain
                     $ toContent $(embedFile "config/robots.txt")
 
 -- | The request body decoded as JSON, or an empty object when it is missing,
--- not JSON, or malformed (Python's @request.get_json(silent=True) or {}@).
+-- not JSON, or malformed.
 --
 -- 'parseCheckJsonBody' reports those failures in its result, so "silent" stays
 -- scoped to a parse failure. The @catch \@SomeException@ this replaces also

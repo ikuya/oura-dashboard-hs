@@ -2,8 +2,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts  #-}
 
--- | Port of the Python test_db.py suite, run against an in-memory SQLite
--- database with the Persistent schema applied.
+-- | Database layer tests, run against an in-memory SQLite database with the
+-- Persistent schema applied.
 module DbSpec (spec) where
 
 import ClassyPrelude
@@ -22,7 +22,7 @@ import Model (migrateAll)
 import Db
 
 -- | Run a DB action against a fresh in-memory database with the schema
--- migrated. Each call gets an isolated database (like the mem_conn fixture).
+-- migrated. Each call gets an isolated database.
 -- Signature left to inference to avoid importing the ResourceT/NoLoggingT
 -- stack that runSqlite fixes internally.
 runMem action = runSqlite ":memory:" $ do

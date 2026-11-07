@@ -60,8 +60,7 @@ withApp :: SpecWith (TestApp App) -> Spec
 withApp = withAppClient Nothing
 
 -- | Like 'withApp' but installs a stub Oura client override on the foundation,
--- so the sync handler avoids real network calls (mirrors the Python test that
--- mocks run_sync).
+-- so the sync handler avoids real network calls.
 withAppClient :: Maybe OuraClient -> SpecWith (TestApp App) -> Spec
 withAppClient mclient = before $ do
     settings <- loadYamlSettings

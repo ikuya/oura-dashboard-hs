@@ -4,10 +4,6 @@ Oura Ring の生体データをローカルで閲覧するための Web ダッ�
 Oura Ring API v2 から取得したデータをローカルの SQLite に保存し、
 静的フロントエンド (Chart.js) へ JSON API 経由で配信します。
 
-Python/Flask 版から移植したエンドポイントはバイト単位で互換なので、当時の
-`static/` 配下のフロントエンドはそのまま動作します。以降に追加した機能
-（睡眠段階チャート）は API・フロントとも新規です。
-
 > English version: [README.md](README.md)
 
 ## 機能
@@ -304,9 +300,9 @@ stack test
 config/models.persistentmodels   Persistent モデル。既存 oura.db スキーマ + sleep_periods / oura_events
 config/routes.yesodroutes         ルート定義
 config/settings.yml               設定（シークレットは .env から取得）
-src/Db.hs                         SQLite のクエリ/upsert 層 (db.py の移植)
+src/Db.hs                         SQLite のクエリ/upsert 層
 src/Oura.hs                       Oura Ring API v2 クライアント（取得関数のレコード）
-src/Sync.hs                       差分同期ロジック (sync.py の移植)
+src/Sync.hs                       差分同期ロジック
 src/Advice.hs                     アドバイスのジョブ状態管理 + claude CLI ワーカー
 src/Language.hs                   アドバイスの出力言語
 src/DailySync.hs                  日次同期 CLI (cron)

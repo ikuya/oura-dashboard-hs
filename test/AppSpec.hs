@@ -1,8 +1,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Port of the Python test_app.py API tests (auth, metrics, heartrate, sync).
--- Advice endpoints are covered separately once Phase 5 lands.
+-- | API tests: auth, metrics, heartrate, sync and advice.
 module AppSpec (spec) where
 
 import TestImport
@@ -365,8 +364,7 @@ spec = do
 
 -- helpers ----------------------------------------------------------------
 
--- | Insert a job directly into the foundation's TVar (mirrors the Python tests
--- setting _advice_jobs directly).
+-- | Insert a job directly into the foundation's TVar.
 insertJob :: Text -> JobStatus -> Text -> Maybe AdviceError -> YesodExample App ()
 insertJob jid st advice merr = do
     app <- getTestYesod

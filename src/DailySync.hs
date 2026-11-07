@@ -3,7 +3,7 @@
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE TemplateHaskell   #-}
 
--- | Daily sync CLI, ported from daily_sync.py.
+-- | Daily sync CLI.
 --
 -- Runs an incremental sync with a 7-day backfill and exits 1 when any metric
 -- errored, then backs up the database (see Backup), also exiting 1 when that
@@ -61,8 +61,8 @@ dailySync settings appLog = do
             pool <- createSqlitePool
                 (sqlDatabase (appDatabaseConf settings))
                 (sqlPoolSize (appDatabaseConf settings))
-            -- Apply migrations first (mirrors daily_sync.py calling db.init_db(),
-            -- which adds the sync_log.last_synced_at column if missing).
+            -- Apply migrations first, which adds the sync_log.last_synced_at
+            -- column if missing.
             _ <- runSqlPool (runMigrationSilent migrateAll) pool
             result <- flip runSqlPool pool $
                 runSync today client Nothing Nothing Nothing backfillDays

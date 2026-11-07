@@ -47,8 +47,8 @@ dayFormat = "%Y-%m-%d"
 -- | Accept a @YYYY-MM-DD@ string from outside the app (a URL segment, a query
 -- parameter, a request body field).
 --
--- Two checks, for two different reasons. The shape check (the @re.fullmatch@
--- the Python app used) keeps the text canonical, so that the 'Ord' instance
+-- Two checks, for two different reasons. The shape check keeps the text
+-- canonical, so that the 'Ord' instance
 -- stays chronological and the DB's string comparisons mean what they say.
 -- The calendar check rejects a well-shaped but impossible date such as
 -- @1999-13-45@, which is what makes 'parseDay' total for every 'DayText' that

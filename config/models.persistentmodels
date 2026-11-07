@@ -1,6 +1,6 @@
--- Persistent models mapped onto the existing Python oura.db schema.
--- Table and column names are pinned with sql= / explicit primary keys so
--- Persistent reads and writes the same database the Flask app created.
+-- Persistent models for oura.db.
+-- Table and column names are pinned with sql= / explicit primary keys, so
+-- the schema does not follow Persistent's naming conventions.
 -- Syntax: https://github.com/yesodweb/persistent/blob/master/docs/Persistent-entity-syntax.md
 
 DailyMetric sql=daily_metrics

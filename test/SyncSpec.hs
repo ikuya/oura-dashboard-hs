@@ -2,9 +2,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts  #-}
 
--- | Port of the Python test_sync.py suite. The OuraClient is a recording stub
--- (mirroring MagicMock): it returns configured records and captures the
--- (metric, start, end) of every call so tests can assert on fetched ranges.
+-- | Sync tests. The OuraClient is a recording stub: it returns configured
+-- records and captures the (metric, start, end) of every call so tests can
+-- assert on fetched ranges.
 module SyncSpec (spec) where
 
 import ClassyPrelude
@@ -129,11 +129,8 @@ spec = do
                 findMissingRange "2024-01-31" (Daily Sleep) "2024-01-31"
             r `shouldBe` Just (DateRange "2024-01-11" "2024-01-31")
 
-        -- NOTE: The Python test_sync assertions for the following cases never
-        -- actually ran: the conftest mem_conn fixture builds sync_log without
-        -- last_synced_at, so update_sync_log raises before the assertion. These
-        -- expectations follow the real sync.py logic: fetch_start =
-        -- min(refetch_start, next_day), where refetch_start = today - 6.
+        -- The fetch start is min(refetchStart, nextDay), where
+        -- refetchStart = today - 6.
         it "returns Nothing when refetch window is past the capped end" $ do
             -- requested_end far in the past → refetch_start (today-6) > end.
             r <- runMem $ do
@@ -304,8 +301,7 @@ spec = do
 
         -- Without backfill there is a single incremental call. Because the
         -- refetch window (today-6) reaches back to cover the gap, the whole
-        -- window is fetched as one range — the Python assertion expecting only
-        -- (today, today) was unreachable (update_sync_log raised first).
+        -- window is fetched as one range, not just (today, today).
         it "no backfill fetches only the incremental refetch window" $ do
             calls <- runMem $ do
                 forM_ [0..6] $ \i -> do

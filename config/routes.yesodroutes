@@ -24,10 +24,10 @@
 /api/sync/status SyncStatusR GET
 /api/sync        SyncR       POST
 
--- Advice (handlers added in Phase 5)
+-- Advice
 -- Yesod cannot have a literal and a dynamic segment share a position, so
 -- /api/advice/history and /api/advice/<job_id> are both served by AdviceJobR,
--- which dispatches on the segment value (matching the Python URL contract).
+-- which dispatches on the segment value.
 /api/advice/history/#Text   AdviceEntryR   GET
 /api/advice                 AdviceR        POST
 /api/advice/#Text           AdviceJobR     GET
