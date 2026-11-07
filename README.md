@@ -335,3 +335,7 @@ src/Handler/Home.hs               Serves static/index.html
 app/main.hs                       Web server entry point
 static/                           Frontend (index.html, *.js, style.css; i18n.js holds the advice UI's ja/en texts)
 ```
+
+## License
+
+MIT License. See [LICENSE](LICENSE).

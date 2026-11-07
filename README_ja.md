@@ -318,3 +318,7 @@ src/Handler/Home.hs               static/index.html の配信
 app/main.hs                       Web サーバのエントリポイント
 static/                           フロントエンド (index.html, *.js, style.css。i18n.js にアドバイス画面の ja/en 文言)
 ```
+
+## ライセンス
+
+MIT License です。詳細は [LICENSE](LICENSE) を参照してください。
