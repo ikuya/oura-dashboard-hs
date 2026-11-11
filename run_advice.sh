@@ -5,6 +5,18 @@
 # ~/.local/bin holds the claude CLI the advice is generated with.
 export PATH=$HOME/.ghcup/bin:$HOME/.local/bin:$PATH
 
+# Long-lived subscription token from `claude setup-token`, kept outside the
+# repo (mode 600). It replaces the interactive /login session, which can
+# expire and break unattended runs.
+TOKEN_FILE=$HOME/.config/oura-dashboard/claude-token.env
+if [ -r "$TOKEN_FILE" ]; then
+    set -a
+    . "$TOKEN_FILE"
+    set +a
+fi
+# An API key would take precedence and bill the API instead of the plan.
+unset ANTHROPIC_API_KEY
+
 WORK_DIR=$HOME/work/oura-dashboard-hs
 
 cd "$WORK_DIR" || exit 1
