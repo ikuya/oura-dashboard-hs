@@ -27,7 +27,7 @@ Oura Ring が計測した生体データ（睡眠・準備度・活動量・ス�
 | `src/Oura.hs` | 151 | Oura API v2 クライアント。**fetch 関数を持つレコード型** (`OuraClient`) にすることで、テスト時にスタブへ差し替え可能。next_token ページネーション、15 秒タイムアウト、HTTP ステータスと例外を `OuraError` に正規化 |
 | `src/Db.hs` | 469 | SQLite クエリ層。raw SQL 中心（`INSERT OR REPLACE` / `INSERT OR IGNORE`、`substr`、`json_extract`、`GROUP BY`）。イベントの置き換え保存、月平均の集計もここ。export リストなしで `module Db where` |
 | `src/Sync.hs` | 364 | 増分同期の中核。`findMissingRange` / `backfillRanges` / `runSync`。心拍のみ 30 日窓で逆方向にループ |
-| `src/Advice.hs` | 494 | アドバイス生成。ペイロード構築・プロンプト・`claude` CLI 実行（`generateAdvice`、120 秒タイムアウト）と、TVar 上のインメモリ Map + `forkIO` ワーカーによる Web 用ジョブ |
+| `src/Advice.hs` | 494 | アドバイス生成。ペイロード構築・プロンプト・`claude` CLI 実行（`generateAdvice`、600 秒タイムアウト）と、TVar 上のインメモリ Map + `forkIO` ワーカーによる Web 用ジョブ |
 | `src/Language.hs` | 44 | アドバイスの出力言語 `Language`（`Ja`/`En`）。`parseLanguage` は `en-US` のような地域付きコードも受け付ける。Yesod の `Lang`（`Text` の別名）と衝突しないようこの名前 |
 | `src/Metric.hs` | 121 | `DailyMetric` / `EventKind` / `Metric` 型。メトリック名を `dailyMetricName` / `eventKindName` に一元化。`allDailyMetrics = [minBound..maxBound]` で総当たりを保証 |
 | `src/DateText.hs` | 87 | `DayText`（`YYYY-MM-DD` の newtype）と `DateRange`。`parseDayText` は外部入力向けの検証付き `Maybe` 版、`parseDay` は `Day` への変換で失敗時 `error`。`todayIn` / `todayUtc` |
@@ -185,7 +185,7 @@ stateDiagram-v2
         [*] --> queued: POST /api/advice<br/>ジョブ ID 発行・202 返却
         queued --> running: forkIO ワーカーが拾う
         running --> completed: claude CLI 正常終了
-        running --> failed: 非ゼロ終了 / 120 秒タイムアウト / コマンド不在
+        running --> failed: 非ゼロ終了 / 600 秒タイムアウト / コマンド不在
         completed --> [*]: advice_history に保存<br/>GET で 200 返却
         failed --> [*]: GET で 502 返却
     }
@@ -244,7 +244,7 @@ flowchart LR
   - `buildHealthPayload`（`advicePeriod` = 直近 `adviceDays`（14）日分を `getDailyMetricsBulk` で取得し `extractKeyFields` でメトリックごとに必要フィールドだけ抜粋。睡眠は段階時間の日次合計・本睡眠の時刻とバイタル・仮眠数、イベントは `eventSummary` で時刻を `HH:MM`、長さを分に整形して付ける。タグ名は `custom_name` が null・空なら `tag_type_code` を使い、空のコメントは送らない）
   - `buildAdvicePrompt`（英語の共通システムプロンプト＋JSON。出力言語・見出し・「特になし」に当たる語だけを `adviceStrings :: Language -> AdviceStrings` から差し込み、末尾で「レポート全体を〜語で書くこと」と指示する。`getAdviceBefore` で得た直前のアドバイスがあれば、それを踏まえて「前回からの変化」の節を書かせる）
   - `adviceComparison`（レポート上部に出す主要スコアの「今回期間 vs 前回期間」の平均）、`hasHealthData`（データ皆無の判定）
-  - `generateAdvice`（`claude -p ... --model opus` を `proc` + `readCreateProcessWithExitCode` で実行、120 秒 `timeout`。Web ジョブと `ScheduledAdvice` で共有）。失敗は `AdviceError`（`ClaudeNotFound`/`ClaudeFailed`/`AdviceTimeout`）で返し、API には `adviceErrorCode` のコードと英語の `adviceErrorMessage` を、ログには後者を出す。利用者向けの文言への翻訳はフロント（`static/i18n.js`）が持つ
+  - `generateAdvice`（`claude -p ... --model opus` を `proc` + `readCreateProcessWithExitCode` で実行、600 秒 `timeout`。Web ジョブと `ScheduledAdvice` で共有）。失敗は `AdviceError`（`ClaudeNotFound`/`ClaudeFailed`/`AdviceTimeout`）で返し、API には `adviceErrorCode` のコードと英語の `adviceErrorMessage` を、ログには後者を出す。利用者向けの文言への翻訳はフロント（`static/i18n.js`）が持つ
   - `createAdviceJob`（UUID 発行、`TVar (Map Text AdviceJob)` に `Queued` で登録）→`runAdviceJob`（`forkIO` 済みの別スレッドで `generateAdvice` を呼び、成功時は `advice_history` に保存）
 - **`Backup.hs`** — `backupDatabase` は `VACUUM INTO` で `oura-YYYY-MM-DD.db.partial` に書き出してからリネームする（クラッシュしても途中までのファイルが `oura-*.db` として残らない）。SQLite 自身が一貫したスナップショットを書くので、Web サーバやアドバイスジョブが書き込み中でも安全。`VACUUM` はトランザクション内では失敗するため `runSqlPoolNoTransaction` を使う。同じ日の再実行は上書きし、`staleBackups` で新しい `backup-keep`（既定 14）世代だけ残す。`backup-dir` が空（既定）ならバックアップしない（複製 DB での開発実行が本物のバックアップを上書きしないように）。
 

@@ -412,7 +412,7 @@ adviceErrorMessage AdviceTimeout = "analysis timed out"
 
 -- | How long the CLI may take, in seconds.
 generateTimeout :: Int
-generateTimeout = 120
+generateTimeout = 600
 
 -- | Run the claude CLI on a prompt: the report, or why it could not be had.
 -- Shared by the web's advice jobs and the scheduled CLI.

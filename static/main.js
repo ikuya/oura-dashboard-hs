@@ -584,7 +584,9 @@ function renderMarkdown(el, markdown) {
   }
 
   async function pollAdviceJob(jobId) {
-    const maxAttempts = 80;
+    // Outlast the server's 600 s CLI timeout (Advice.generateTimeout) so the
+    // server's own failure is shown rather than a client-side give-up.
+    const maxAttempts = 410;
     for (let i = 0; i < maxAttempts; i++) {
       const res = await apiFetch(`/api/advice/${jobId}`);
       const data = await res.json();
