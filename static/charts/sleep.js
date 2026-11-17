@@ -140,10 +140,16 @@ export function renderHypnogram(period, state) {
   });
 }
 
+// The stages that count as sleep, i.e. all but Awake.
+const ASLEEP_STAGES = SLEEP_STAGES.filter((s) => s.key !== "awake");
+const AVG_SLEEP_COLOR = "#e2e4ed";
+
 // One bar per day. A day can hold several periods (a long sleep plus naps) and
 // the bar is the night as a whole, so they are summed; the full bar height is
 // then time_in_bed. These totals come from the duration fields rather than the
 // 5-minute phase string, so they differ from the hypnogram by a few percent.
+// A horizontal line marks the range's mean total sleep (the bars less Awake),
+// over the days that have any.
 export function renderStageDurations(periods, state) {
   const byDay = new Map();
   for (const p of periods) {
@@ -153,17 +159,44 @@ export function renderStageDurations(periods, state) {
   }
   const days = [...byDay.keys()].sort();
 
+  const asleep = days
+    .map((d) => ASLEEP_STAGES.reduce((sum, s) => sum + byDay.get(d)[s.key], 0))
+    .filter((v) => v > 0);
+  const meanAsleep = asleep.length > 0 ? asleep.reduce((a, b) => a + b, 0) / asleep.length : null;
+  const note = document.getElementById("stage-duration-note");
+  if (note) {
+    note.textContent = meanAsleep == null
+      ? ""
+      : `avg total sleep ${formatDuration(meanAsleep)} (${asleep.length} nights)`;
+  }
+
+  const stageBars = SLEEP_STAGES.map((s) => ({
+    label: s.label,
+    data: days.map((d) => ({ x: d, y: byDay.get(d)[s.key] / 3600 })),
+    backgroundColor: s.color + "cc",
+    borderColor: s.color,
+    borderWidth: 1,
+    order: 1,
+  }));
+  // A stack of its own, so the y stacking of the stages does not add the
+  // line on top of them.
+  const meanLine = {
+    type: "line",
+    label: "Avg total sleep",
+    data: meanAsleep == null ? [] : days.map((d) => ({ x: d, y: meanAsleep / 3600 })),
+    stack: "avg",
+    borderColor: AVG_SLEEP_COLOR + "cc",
+    borderDash: [6, 4],
+    borderWidth: 1.5,
+    pointRadius: 0,
+    backgroundColor: AVG_SLEEP_COLOR,
+    fill: false,
+    order: 0,
+  };
+
   makeChart("chart-sleep-stage-duration", state.charts, {
     type: "bar",
-    data: {
-      datasets: SLEEP_STAGES.map((s) => ({
-        label: s.label,
-        data: days.map((d) => ({ x: d, y: byDay.get(d)[s.key] / 3600 })),
-        backgroundColor: s.color + "cc",
-        borderColor: s.color,
-        borderWidth: 1,
-      })),
-    },
+    data: { datasets: [...stageBars, meanLine] },
     options: {
       responsive: true,
       interaction: { mode: "index", intersect: false },
