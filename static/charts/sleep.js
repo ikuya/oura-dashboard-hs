@@ -212,6 +212,8 @@ export function renderStageDurations(periods, state) {
       plugins: {
         legend: { position: "top" },
         tooltip: {
+          // The mean is the same on every day and already in the heading.
+          filter: (item) => item.datasetIndex < stageBars.length,
           callbacks: {
             label: (ctx) =>
               `${ctx.dataset.label}: ${formatDuration(ctx.parsed.y * 3600)}`,
